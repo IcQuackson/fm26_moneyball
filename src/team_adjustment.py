@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import HuberRegressor
+from sklearn.linear_model import HuberRegressor, LinearRegression
 
 from src.utils import zscore_series
 
@@ -31,10 +31,20 @@ def adjust_role_metrics(role_df: pd.DataFrame, primitive_columns: list[str]) -> 
             metadata[primitive] = {"used_adjustment": False}
             continue
 
-        model = HuberRegressor()
         x = pts_z.loc[mask].to_numpy().reshape(-1, 1)
         y = values.loc[mask].to_numpy()
-        model.fit(x, y)
+        estimator_name = "huber"
+        try:
+            model = HuberRegressor(max_iter=500)
+            model.fit(x, y)
+        except ValueError as exc:
+            warnings.append(
+                f"{primitive}: Huber team adjustment failed ({exc}); falling back to linear regression."
+            )
+            model = LinearRegression()
+            model.fit(x, y)
+            estimator_name = "linear_regression_fallback"
+
         pred = pd.Series(model.predict(x), index=values.loc[mask].index)
         residual_values = values.loc[mask] - pred
         pts_used = pts_z.loc[mask]
@@ -49,7 +59,8 @@ def adjust_role_metrics(role_df: pd.DataFrame, primitive_columns: list[str]) -> 
         adjusted[primitive] = residuals.fillna(values)
         metadata[primitive] = {
             "used_adjustment": True,
+            "estimator": estimator_name,
             "intercept": float(model.intercept_),
-            "coef": float(model.coef_[0]),
+            "coef": float(np.ravel(model.coef_)[0]),
         }
     return adjusted, metadata, warnings

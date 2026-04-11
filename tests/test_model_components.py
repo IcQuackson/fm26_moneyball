@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
+import src.team_adjustment as team_adjustment_module
 from src.family_scores import compute_family_scores
 from src.shrinkage import shrink_role_primitives
 from src.team_adjustment import adjust_role_metrics
@@ -66,3 +68,27 @@ def test_team_adjustment_uses_pts_per_game():
     adjusted, _, _ = adjust_role_metrics(role_df, ["metric"])
     corr = adjusted["metric"].corr(role_df["Pts/Gm"])
     assert abs(corr) < 1e-6
+
+
+def test_team_adjustment_falls_back_when_huber_fails(monkeypatch):
+    class BrokenHuber:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def fit(self, x, y):
+            raise ValueError("HuberRegressor convergence failed: test")
+
+    monkeypatch.setattr(team_adjustment_module, "HuberRegressor", BrokenHuber)
+
+    role_df = pd.DataFrame(
+        {
+            "Pts/Gm": [0.8, 1.0, 1.2, 1.4, 1.6],
+            "metric": [0.1, 0.2, 0.3, 0.4, 0.5],
+        }
+    )
+    adjusted, metadata, warnings = adjust_role_metrics(role_df, ["metric"])
+    corr = adjusted["metric"].corr(role_df["Pts/Gm"])
+
+    assert abs(corr) < 1e-6
+    assert metadata["metric"]["estimator"] == "linear_regression_fallback"
+    assert any("falling back to linear regression" in warning for warning in warnings)

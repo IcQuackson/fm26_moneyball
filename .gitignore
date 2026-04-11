@@ -33,6 +33,7 @@ ENV/
 # Model outputs and local caches
 artifacts/
 data_cache/
+player_export_*.csv
 
 # OS/editor noise
 .DS_Store
