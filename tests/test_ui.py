@@ -24,12 +24,35 @@ class FakeMetric:
         self.metrics.append((label, value))
 
 
+class FakeProgress:
+    def __init__(self, calls):
+        self.calls = calls
+
+    def progress(self, value):
+        self.calls.append(("progress_update", value))
+
+    def empty(self):
+        self.calls.append(("progress_empty",))
+
+
+class FakeEmpty:
+    def __init__(self, calls):
+        self.calls = calls
+
+    def caption(self, value):
+        self.calls.append(("caption_update", value))
+
+    def empty(self):
+        self.calls.append(("empty_clear",))
+
+
 class FakeStreamlit:
     def __init__(self, selectbox_values=None, slider_values=None, upload=None):
         self.selectbox_values = list(selectbox_values or [])
         self.slider_values = list(slider_values or [])
         self.upload = upload
         self.calls = []
+        self.session_state = {}
 
     def set_page_config(self, **kwargs):
         self.calls.append(("set_page_config", kwargs))
@@ -49,6 +72,14 @@ class FakeStreamlit:
 
     def warning(self, value):
         self.calls.append(("warning", value))
+
+    def progress(self, value):
+        self.calls.append(("progress", value))
+        return FakeProgress(self.calls)
+
+    def empty(self):
+        self.calls.append(("empty",))
+        return FakeEmpty(self.calls)
 
     def spinner(self, value):
         self.calls.append(("spinner", value))
@@ -91,6 +122,13 @@ class FakeStreamlit:
 
     def markdown(self, value):
         self.calls.append(("markdown", value))
+
+    def button(self, label):
+        self.calls.append(("button", label))
+        return False
+
+    def rerun(self):
+        self.calls.append(("rerun",))
 
 
 def sample_results():
@@ -209,11 +247,40 @@ def test_app_main_without_upload(monkeypatch):
 def test_app_main_with_upload(monkeypatch):
     fake = FakeStreamlit(upload=object())
     monkeypatch.setattr(app_ui, "st", fake)
-    payload = {"results": sample_results(), "traces": sample_traces(), "diagnostics": sample_diagnostics(), "load_meta": {"warnings": ["warn"], "row_count": 3}}
-    monkeypatch.setattr(app_ui, "run_pipeline", lambda upload: payload)
+    payload = {
+        "results": sample_results(),
+        "traces": sample_traces(),
+        "diagnostics": sample_diagnostics(),
+        "load_meta": {"warnings": ["warn"], "row_count": 3, "file_hash": "abc"},
+        "uncertainty_state": "complete",
+    }
+    monkeypatch.setattr(app_ui, "run_pipeline", lambda upload, progress_callback=None: payload)
+    monkeypatch.setattr(app_ui, "_resolve_uncertainty_future", lambda payload: (payload, None))
     called = {"overview": False, "player": False, "diag": False}
     monkeypatch.setattr(app_ui, "render_overview", lambda results: called.__setitem__("overview", True))
     monkeypatch.setattr(app_ui, "render_player_detail", lambda results, traces, diagnostics: called.__setitem__("player", True))
     monkeypatch.setattr(app_ui, "render_diagnostics", lambda payload_arg: called.__setitem__("diag", True))
     app_ui.main()
     assert all(called.values())
+
+
+def test_app_main_starts_background_uncertainty(monkeypatch):
+    fake = FakeStreamlit(upload=object())
+    monkeypatch.setattr(app_ui, "st", fake)
+    payload = {
+        "results": sample_results(),
+        "traces": sample_traces(),
+        "diagnostics": sample_diagnostics(),
+        "load_meta": {"warnings": [], "row_count": 3, "file_hash": "abc"},
+        "uncertainty_state": "pending",
+    }
+    monkeypatch.setattr(app_ui, "run_pipeline", lambda upload, progress_callback=None: payload)
+    monkeypatch.setattr(app_ui, "_resolve_uncertainty_future", lambda payload: (payload, None))
+    started = {"called": False}
+    monkeypatch.setattr(app_ui, "_maybe_start_uncertainty_job", lambda file_hash: started.__setitem__("called", True))
+    monkeypatch.setattr(app_ui, "render_overview", lambda results: None)
+    monkeypatch.setattr(app_ui, "render_player_detail", lambda results, traces, diagnostics: None)
+    monkeypatch.setattr(app_ui, "render_diagnostics", lambda payload_arg: None)
+    app_ui.main()
+    assert started["called"] is True
+    assert any(call[0] == "info" and "Core scores are ready" in call[1] for call in fake.calls)

@@ -18,7 +18,7 @@ def bootstrap_perf_raw(
     for _ in range(iterations):
         sampled_idx = rng.integers(0, len(role_df), size=len(role_df))
         sampled = role_df.iloc[sampled_idx].copy()
-        sampled_result = scorer(sampled, bootstrap_mode=True)
+        sampled_result = scorer(sampled)
         if sampled_result["results"].empty:
             continue
         grouped = sampled_result["results"].groupby("player_role_id")["performance_raw"].mean()

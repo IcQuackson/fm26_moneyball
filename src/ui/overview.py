@@ -45,26 +45,29 @@ def render_overview(results: pd.DataFrame) -> None:
     summary.to_csv(buffer, index=False)
     st.download_button("Export filtered table to CSV", data=buffer.getvalue(), file_name="fm26_cohort_overview.csv")
 
-    chart_data = filtered[["player", "cost_score", "performance_score", "minutes", "uncertainty_score", "broad_role"]].dropna()
+    chart_columns = ["player", "cost_score", "performance_score", "minutes", "broad_role", "uncertainty_score"]
+    chart_data = filtered[chart_columns].dropna(subset=["player", "cost_score", "performance_score", "minutes", "broad_role"])
     if not chart_data.empty:
+        encoding = {
+            "x": {"field": "cost_score", "type": "quantitative", "title": "Cost Score"},
+            "y": {"field": "performance_score", "type": "quantitative", "title": "Performance Score"},
+            "size": {"field": "minutes", "type": "quantitative", "title": "Minutes"},
+            "tooltip": [
+                {"field": "player", "type": "nominal"},
+                {"field": "broad_role", "type": "nominal", "title": "Role"},
+                {"field": "minutes", "type": "quantitative"},
+                {"field": "performance_score", "type": "quantitative"},
+                {"field": "cost_score", "type": "quantitative"},
+            ],
+        }
+        if chart_data["uncertainty_score"].notna().any():
+            encoding["color"] = {"field": "uncertainty_score", "type": "quantitative", "title": "Uncertainty Score"}
+            encoding["tooltip"].append({"field": "uncertainty_score", "type": "quantitative"})
         st.vega_lite_chart(
             chart_data,
             {
                 "mark": {"type": "circle", "tooltip": True},
-                "encoding": {
-                    "x": {"field": "cost_score", "type": "quantitative", "title": "Cost Score"},
-                    "y": {"field": "performance_score", "type": "quantitative", "title": "Performance Score"},
-                    "size": {"field": "minutes", "type": "quantitative", "title": "Minutes"},
-                    "color": {"field": "uncertainty_score", "type": "quantitative", "title": "Uncertainty Score"},
-                    "tooltip": [
-                        {"field": "player", "type": "nominal"},
-                        {"field": "broad_role", "type": "nominal", "title": "Role"},
-                        {"field": "minutes", "type": "quantitative"},
-                        {"field": "performance_score", "type": "quantitative"},
-                        {"field": "cost_score", "type": "quantitative"},
-                        {"field": "uncertainty_score", "type": "quantitative"},
-                    ],
-                },
+                "encoding": encoding,
             },
             use_container_width=True,
         )

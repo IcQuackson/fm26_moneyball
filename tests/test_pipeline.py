@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 import src.pipeline as pipeline_module
-from src.pipeline import run_pipeline
+from src.pipeline import compute_uncertainty_for_file_hash, run_pipeline
 
 from conftest import build_complete_df, dataframe_to_bytes
 
@@ -44,3 +44,16 @@ def test_pipeline_produces_multiple_role_rows(monkeypatch):
     results = _run_fast_pipeline(build_complete_df(positions), monkeypatch)["results"]
     player_rows = results[results["player"] == "Player 0"]
     assert set(player_rows["broad_role"]) == {"AM_W", "ST"}
+
+
+def test_pipeline_returns_core_first_then_uncertainty(monkeypatch):
+    monkeypatch.setattr(pipeline_module, "BOOTSTRAP_ITERATIONS", 5)
+    df = build_complete_df(["ST"] * 8)
+    payload = run_pipeline(dataframe_to_bytes(df))
+
+    assert payload["uncertainty_state"] == "pending"
+    assert payload["results"]["uncertainty_score"].isna().all()
+
+    completed = compute_uncertainty_for_file_hash(payload["load_meta"]["file_hash"])
+    assert completed["uncertainty_state"] == "complete"
+    assert completed["results"]["exposure_uncertainty"].notna().all()
