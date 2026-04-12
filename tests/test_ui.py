@@ -19,9 +19,17 @@ class FakeContext:
 class FakeMetric:
     def __init__(self):
         self.metrics = []
+        self.tables = []
+        self.text = []
 
     def metric(self, label, value):
         self.metrics.append((label, value))
+
+    def markdown(self, value):
+        self.text.append(value)
+
+    def dataframe(self, value, **kwargs):
+        self.tables.append((value, kwargs))
 
 
 class FakeProgress:
@@ -47,9 +55,11 @@ class FakeEmpty:
 
 
 class FakeStreamlit:
-    def __init__(self, selectbox_values=None, slider_values=None, upload=None):
+    def __init__(self, selectbox_values=None, slider_values=None, upload=None, checkbox_values=None, multiselect_values=None):
         self.selectbox_values = list(selectbox_values or [])
         self.slider_values = list(slider_values or [])
+        self.checkbox_values = list(checkbox_values or [])
+        self.multiselect_values = list(multiselect_values or [])
         self.upload = upload
         self.calls = []
         self.session_state = {}
@@ -96,16 +106,28 @@ class FakeStreamlit:
     def subheader(self, value):
         self.calls.append(("subheader", value))
 
-    def selectbox(self, label, options, index=0):
-        self.calls.append(("selectbox", label, options, index))
+    def selectbox(self, label, options, index=0, **kwargs):
+        self.calls.append(("selectbox", label, options, index, kwargs))
         if self.selectbox_values:
             return self.selectbox_values.pop(0)
         return options[index]
+
+    def multiselect(self, label, options, default=None, max_selections=None):
+        self.calls.append(("multiselect", label, options, default, max_selections))
+        if self.multiselect_values:
+            return self.multiselect_values.pop(0)
+        return default or []
 
     def slider(self, label, min_value, max_value, value):
         self.calls.append(("slider", label, min_value, max_value, value))
         if self.slider_values:
             return self.slider_values.pop(0)
+        return value
+
+    def checkbox(self, label, value=False):
+        self.calls.append(("checkbox", label, value))
+        if self.checkbox_values:
+            return self.checkbox_values.pop(0)
         return value
 
     def dataframe(self, value, **kwargs):
@@ -129,6 +151,10 @@ class FakeStreamlit:
 
     def rerun(self):
         self.calls.append(("rerun",))
+
+    def expander(self, label):
+        self.calls.append(("expander", label))
+        return FakeContext()
 
 
 def sample_results():
@@ -243,6 +269,13 @@ def test_render_overview_handles_zero_minutes(monkeypatch):
     assert any(call[0] == "info" and "Minutes filter is unavailable" in call[1] for call in fake.calls)
 
 
+def test_render_overview_shows_league_rankings(monkeypatch):
+    fake = FakeStreamlit(selectbox_values=["Division A", "ST", "All", "finisher__score"], slider_values=[(15, 45), (0, 1200)])
+    monkeypatch.setattr(overview_ui, "st", fake)
+    overview_ui.render_overview(sample_results())
+    assert any(call[0] == "selectbox" and call[1] == "Ranking Category" for call in fake.calls)
+
+
 def test_render_player_detail_handles_empty(monkeypatch):
     fake = FakeStreamlit()
     monkeypatch.setattr(player_detail_ui, "st", fake)
@@ -251,10 +284,12 @@ def test_render_player_detail_handles_empty(monkeypatch):
 
 
 def test_render_player_detail_full(monkeypatch):
-    fake = FakeStreamlit(selectbox_values=["A", "Division A | ST"])
+    fake = FakeStreamlit(selectbox_values=["A", "Division A | ST"], multiselect_values=[["A", "B"]])
     monkeypatch.setattr(player_detail_ui, "st", fake)
     player_detail_ui.render_player_detail(sample_results(), sample_traces(), sample_diagnostics())
     assert any(call[0] == "bar_chart" for call in fake.calls)
+    assert sum(1 for call in fake.calls if call[0] == "vega_lite_chart") >= 1
+    assert any(call[0] == "multiselect" for call in fake.calls)
     assert any(call[0] == "warning" and call[1] == "low sample" for call in fake.calls)
 
 
@@ -274,7 +309,7 @@ def test_app_main_without_upload(monkeypatch):
 
 
 def test_app_main_with_upload(monkeypatch):
-    fake = FakeStreamlit(upload=object())
+    fake = FakeStreamlit(upload=object(), checkbox_values=[False])
     monkeypatch.setattr(app_ui, "st", fake)
     payload = {
         "results": sample_results(),
@@ -290,11 +325,13 @@ def test_app_main_with_upload(monkeypatch):
     monkeypatch.setattr(app_ui, "render_player_detail", lambda results, traces, diagnostics: called.__setitem__("player", True))
     monkeypatch.setattr(app_ui, "render_diagnostics", lambda payload_arg: called.__setitem__("diag", True))
     app_ui.main()
-    assert all(called.values())
+    assert called["overview"] is True
+    assert called["player"] is True
+    assert called["diag"] is False
 
 
 def test_app_main_starts_background_uncertainty(monkeypatch):
-    fake = FakeStreamlit(upload=object())
+    fake = FakeStreamlit(upload=object(), checkbox_values=[False])
     monkeypatch.setattr(app_ui, "st", fake)
     payload = {
         "results": sample_results(),
@@ -312,4 +349,24 @@ def test_app_main_starts_background_uncertainty(monkeypatch):
     monkeypatch.setattr(app_ui, "render_diagnostics", lambda payload_arg: None)
     app_ui.main()
     assert started["called"] is True
-    assert any(call[0] == "info" and "Core scores are ready" in call[1] for call in fake.calls)
+    assert any(call[0] == "info" and "Player profiles are ready" in call[1] for call in fake.calls)
+
+
+def test_app_main_shows_advanced_diagnostics_when_enabled(monkeypatch):
+    fake = FakeStreamlit(upload=object(), checkbox_values=[True])
+    monkeypatch.setattr(app_ui, "st", fake)
+    payload = {
+        "results": sample_results(),
+        "traces": sample_traces(),
+        "diagnostics": sample_diagnostics(),
+        "load_meta": {"warnings": [], "row_count": 3, "file_hash": "abc"},
+        "uncertainty_state": "complete",
+    }
+    monkeypatch.setattr(app_ui, "run_pipeline", lambda upload, progress_callback=None: payload)
+    monkeypatch.setattr(app_ui, "_resolve_uncertainty_future", lambda payload: (payload, None))
+    called = {"diag": False}
+    monkeypatch.setattr(app_ui, "render_overview", lambda results: None)
+    monkeypatch.setattr(app_ui, "render_player_detail", lambda results, traces, diagnostics: None)
+    monkeypatch.setattr(app_ui, "render_diagnostics", lambda payload_arg: called.__setitem__("diag", True))
+    app_ui.main()
+    assert called["diag"] is True

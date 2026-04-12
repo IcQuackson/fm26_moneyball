@@ -5,6 +5,7 @@ import io
 import pandas as pd
 import streamlit as st
 
+from src.ui.presentation import confidence_label, format_metric_label, format_role_label, percentile_band, percentile_style
 
 def _category_score_columns(results: pd.DataFrame) -> list[str]:
     excluded = {"performance_score", "cost_score", "value_gap_score", "uncertainty_score"}
@@ -16,7 +17,7 @@ def _category_score_columns(results: pd.DataFrame) -> list[str]:
 
 
 def render_overview(results: pd.DataFrame) -> None:
-    st.subheader("Cohort Overview")
+    st.subheader("Scout Board")
     if results.empty:
         st.info("No eligible player-role rows were produced from the upload.")
         return
@@ -62,7 +63,13 @@ def render_overview(results: pd.DataFrame) -> None:
         filtered["best_category"] = pd.NA
         filtered["best_category_score"] = pd.NA
 
-    summary = filtered[
+    headline_cols = st.columns(4)
+    headline_cols[0].metric("Profiles", str(len(filtered)))
+    headline_cols[1].metric("Average Age", f"{filtered['age'].mean():.1f}" if not filtered.empty else "NA")
+    headline_cols[2].metric("Avg Category Score", f"{filtered['category_mean_score'].mean():.1f}" if filtered['category_mean_score'].notna().any() else "NA")
+    headline_cols[3].metric("Best Value Gems", str(int((filtered["value_gap_score"] >= 75).sum())) if filtered["value_gap_score"].notna().any() else "0")
+
+    scout_view = filtered[
         [
             "player",
             "division",
@@ -78,7 +85,27 @@ def render_overview(results: pd.DataFrame) -> None:
             "uncertainty_score",
         ]
     ]
-    st.dataframe(summary.sort_values("value_gap_score", ascending=False), use_container_width=True)
+    scout_view = scout_view.rename(
+        columns={
+            "player": "Player",
+            "division": "Division",
+            "club": "Club",
+            "broad_role": "Role",
+            "age": "Age",
+            "minutes": "Minutes",
+            "best_category": "Best Trait",
+            "best_category_score": "Best Trait Pctl",
+            "category_mean_score": "Overall Profile Pctl",
+            "cost_score": "Cost Pctl",
+            "value_gap_score": "Value For Money",
+            "uncertainty_score": "Risk",
+        }
+    )
+    scout_view["Role"] = scout_view["Role"].map(format_role_label)
+    scout_view["Best Trait"] = scout_view["Best Trait"].map(format_metric_label)
+    scout_view = scout_view.sort_values("Value For Money", ascending=False)
+    scout_styler = scout_view.style.map(percentile_style, subset=["Best Trait Pctl", "Overall Profile Pctl", "Cost Pctl", "Value For Money", "Risk"])
+    st.dataframe(scout_styler, use_container_width=True)
 
     buffer = io.StringIO()
     export_frame = filtered[
@@ -100,7 +127,7 @@ def render_overview(results: pd.DataFrame) -> None:
         + category_score_cols
     ]
     export_frame.to_csv(buffer, index=False)
-    st.download_button("Export filtered table to CSV", data=buffer.getvalue(), file_name="fm26_cohort_overview.csv")
+    st.download_button("Export scout board to CSV", data=buffer.getvalue(), file_name="fm26_cohort_overview.csv")
 
     chart_columns = ["player", "cost_score", "category_mean_score", "minutes", "broad_role", "division", "uncertainty_score"]
     chart_data = filtered[chart_columns].dropna(subset=["player", "cost_score", "category_mean_score", "minutes", "broad_role", "division"])
@@ -127,5 +154,65 @@ def render_overview(results: pd.DataFrame) -> None:
                 "mark": {"type": "circle", "tooltip": True},
                 "encoding": encoding,
             },
+            use_container_width=True,
+        )
+
+    if category_score_cols and not filtered.empty:
+        st.markdown("**Category Strength Snapshot**")
+        category_snapshot = (
+            filtered[category_score_cols]
+            .rename(columns=lambda value: format_metric_label(value.replace("__score", "")))
+            .mean(axis=0)
+            .sort_values(ascending=False)
+        )
+        st.bar_chart(category_snapshot)
+
+    if not filtered.empty:
+        st.markdown("**Quick Read**")
+        quick_read = filtered[["player", "best_category", "best_category_score", "value_gap_score", "uncertainty_score"]].copy()
+        quick_read["best_category"] = quick_read["best_category"].map(format_metric_label)
+        quick_read["trait_band"] = quick_read["best_category_score"].map(percentile_band)
+        quick_read["value_band"] = quick_read["value_gap_score"].map(percentile_band)
+        quick_read["confidence"] = quick_read["uncertainty_score"].map(lambda value: confidence_label(value)[0])
+        quick_read_display = quick_read.rename(
+                columns={
+                    "player": "Player",
+                    "best_category": "Standout Trait",
+                    "best_category_score": "Trait Percentile",
+                    "trait_band": "Trait Grade",
+                    "value_gap_score": "Value For Money",
+                    "value_band": "Value Grade",
+                    "confidence": "Confidence",
+                }
+        )
+        quick_read_styler = quick_read_display.style.map(percentile_style, subset=["Trait Percentile", "Value For Money"])
+        st.dataframe(quick_read_styler, use_container_width=True)
+
+    st.markdown("**League Category Rankings**")
+    if selected_division == "All" or selected_role == "All":
+        st.info("Select one Division and one Role to view category rankings inside that league cohort.")
+    elif category_score_cols:
+        ranking_category = st.selectbox(
+            "Ranking Category",
+            options=category_score_cols,
+            format_func=lambda value: format_metric_label(value.replace("__score", "")),
+        )
+        ranking_frame = filtered[["player", "club", "minutes", ranking_category, "value_gap_score", "uncertainty_score"]].copy()
+        ranking_frame = ranking_frame.rename(
+            columns={
+                "player": "Player",
+                "club": "Club",
+                "minutes": "Minutes",
+                ranking_category: "Category Percentile",
+                "value_gap_score": "Value For Money",
+                "uncertainty_score": "Risk",
+            }
+        )
+        ranking_frame["Rank"] = ranking_frame["Category Percentile"].rank(method="min", ascending=False)
+        ranking_frame["Grade"] = ranking_frame["Category Percentile"].map(percentile_band)
+        ranking_frame = ranking_frame.sort_values(["Rank", "Player"]).reset_index(drop=True)
+        ranking_frame = ranking_frame[["Rank", "Player", "Club", "Minutes", "Category Percentile", "Grade", "Value For Money", "Risk"]]
+        st.dataframe(
+            ranking_frame.style.map(percentile_style, subset=["Category Percentile", "Value For Money", "Risk"]),
             use_container_width=True,
         )

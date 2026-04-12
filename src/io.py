@@ -39,6 +39,15 @@ def load_fm_csv(source: Any) -> tuple[pd.DataFrame, dict]:
         division_warning = (
             "Division column was not present. Cohorts were computed within the whole upload for each broad role."
         )
+        league_assumption = "upload_wide_broad_role_cohort"
+        warnings = [
+            "Division was not found, so each upload is treated as one broad-role cohort."
+        ]
+    else:
+        league_assumption = "division_broad_role_cohort"
+        warnings = [
+            "Division column detected. Percentiles and category scores are computed within Division x Broad Role cohorts."
+        ]
 
     parsed_df = raw_df.copy()
     for column in raw_df.columns:
@@ -52,10 +61,7 @@ def load_fm_csv(source: Any) -> tuple[pd.DataFrame, dict]:
         "file_hash": file_hash,
         "row_count": int(len(df)),
         "missingness": raw_df.replace("", pd.NA).isna().mean().sort_values(ascending=False),
-        "league_assumption": "unverified_single_upload_cohort",
-        "warnings": [
-            "League homogeneity cannot be verified because the export has no League column. One uploaded file is treated as one cohort."
-        ]
-        + ([division_warning] if division_warning is not None else []),
+        "league_assumption": league_assumption,
+        "warnings": warnings + ([division_warning] if division_warning is not None else []),
     }
     return df, metadata

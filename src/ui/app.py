@@ -51,8 +51,8 @@ def _resolve_uncertainty_future(payload: dict) -> tuple[dict, str | None]:
 
 def main() -> None:
     st.set_page_config(page_title="FM26 Moneyball Analyzer", layout="wide")
-    st.title("FM26 Moneyball Analyzer")
-    st.caption("Role-specific same-league scoring from a semicolon-delimited FM export.")
+    st.title("FM26 Scout Dashboard")
+    st.caption("Player profiles, percentile scouting, and value-for-money signals from your Football Manager export.")
     _ensure_session_state()
 
     upload = st.file_uploader("Upload FM CSV", type=["csv"])
@@ -80,23 +80,27 @@ def main() -> None:
     result_count = len(payload["results"])
     role_count = int(payload["results"]["broad_role"].nunique()) if result_count else 0
     summary_cols = st.columns(4)
-    summary_cols[0].metric("Rows", str(payload["load_meta"]["row_count"]))
-    summary_cols[1].metric("Player-Role Rows", str(result_count))
-    summary_cols[2].metric("Roles", str(role_count))
-    summary_cols[3].metric("Uncertainty", "Ready" if payload.get("uncertainty_state") == "complete" else "Computing")
+    summary_cols[0].metric("Players Loaded", str(payload["load_meta"]["row_count"]))
+    summary_cols[1].metric("Scout Profiles", str(result_count))
+    summary_cols[2].metric("Roles Covered", str(role_count))
+    summary_cols[3].metric("Confidence Update", "Ready" if payload.get("uncertainty_state") == "complete" else "In Progress")
 
     if payload.get("uncertainty_state") != "complete":
         _maybe_start_uncertainty_job(payload["load_meta"]["file_hash"])
         st.info(
-            "Core scores are ready. Uncertainty is computing in the background. The dashboard is usable now; click refresh after a while to load the completed uncertainty metrics."
+            "Player profiles are ready. Confidence estimates are still being calculated in the background. You can use the dashboard now and refresh later for the final confidence view."
         )
         if st.button("Refresh Uncertainty Status"):
             st.rerun()
 
-    tab_overview, tab_player, tab_diag = st.tabs(["Overview", "Player Detail", "Diagnostics"])
+    show_advanced = st.checkbox("Show Advanced Model Notes", value=False)
+    tab_labels = ["Scout Board", "Player Report"] + (["Model Notes"] if show_advanced else [])
+    tabs = st.tabs(tab_labels)
+    tab_overview, tab_player = tabs[0], tabs[1]
     with tab_overview:
         render_overview(payload["results"])
     with tab_player:
         render_player_detail(payload["results"], payload["traces"], payload["diagnostics"])
-    with tab_diag:
-        render_diagnostics(payload)
+    if show_advanced:
+        with tabs[2]:
+            render_diagnostics(payload)

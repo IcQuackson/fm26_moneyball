@@ -22,3 +22,5 @@ def test_loads_semicolon_csv(csv_buffer):
     assert metadata["row_count"] == 2
     assert loaded.loc[0, "Player__raw"] == "Player 0"
     assert loaded.loc[0, "Transfer Value"] == 1_500_000.0
+    assert metadata["league_assumption"] == "division_broad_role_cohort"
+    assert any("Division column detected" in warning for warning in metadata["warnings"])
