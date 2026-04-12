@@ -90,25 +90,24 @@ def confidence_label(uncertainty_score: float | int | None) -> tuple[str, float 
 
 def percentile_color(value: float | int | None) -> str:
     if value is None or pd.isna(value):
-        return "#f3f4f6"
+        return "#e5e7eb"
     value = float(value)
     if value >= 90:
-        return "#0f766e"
+        return "#99f6e4"
     if value >= 75:
-        return "#16a34a"
+        return "#bbf7d0"
     if value >= 60:
-        return "#65a30d"
+        return "#d9f99d"
     if value >= 40:
-        return "#ca8a04"
+        return "#fde68a"
     if value >= 25:
-        return "#ea580c"
-    return "#dc2626"
+        return "#fed7aa"
+    return "#fecaca"
 
 
 def percentile_style(value: float | int | None) -> str:
     color = percentile_color(value)
-    text = "#ffffff" if color not in {"#f3f4f6", "#ca8a04"} else "#111827"
-    return f"background-color: {color}; color: {text}; font-weight: 600;"
+    return f"background-color: {color}; color: #111827; font-weight: 600;"
 
 
 def percentile_text(value: float | int | None) -> str:

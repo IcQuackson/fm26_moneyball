@@ -16,9 +16,10 @@ def _inject_theme() -> None:
         <style>
         .stApp {
             background:
-                radial-gradient(circle at top left, rgba(20, 184, 166, 0.16), transparent 28%),
-                radial-gradient(circle at top right, rgba(245, 158, 11, 0.14), transparent 24%),
-                linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+                radial-gradient(circle at top left, rgba(14, 165, 233, 0.14), transparent 30%),
+                radial-gradient(circle at top right, rgba(249, 115, 22, 0.12), transparent 24%),
+                linear-gradient(180deg, #f8fafc 0%, #edf2f7 100%);
+            color: #0f172a;
         }
         .block-container {
             padding-top: 1.4rem;
@@ -30,15 +31,32 @@ def _inject_theme() -> None:
             border-radius: 18px;
             padding: 0.8rem 1rem;
             box-shadow: 0 14px 30px rgba(15, 23, 42, 0.06);
+            color: #0f172a;
+        }
+        div[data-testid="stMetricLabel"], div[data-testid="stMetricValue"] {
+            color: #0f172a;
+        }
+        div[data-testid="stMarkdownContainer"], div[data-testid="stCaptionContainer"], label, p, span, h1, h2, h3 {
+            color: #0f172a;
         }
         div[data-testid="stDataFrame"], div[data-testid="stVegaLiteChart"], div[data-testid="stMarkdownContainer"] > p {
             border-radius: 16px;
         }
+        div[data-testid="stDataFrame"] {
+            background: rgba(255, 255, 255, 0.88);
+            border: 1px solid rgba(148, 163, 184, 0.18);
+        }
         button[kind="secondary"], button[kind="primary"] {
             border-radius: 999px;
+            color: #0f172a;
         }
         div[data-baseweb="select"] > div {
             border-radius: 14px;
+            background: rgba(255, 255, 255, 0.92);
+            color: #0f172a;
+        }
+        div[data-baseweb="select"] input {
+            color: #0f172a !important;
         }
         </style>
         """,
