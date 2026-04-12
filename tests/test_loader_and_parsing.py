@@ -24,3 +24,11 @@ def test_loads_semicolon_csv(csv_buffer):
     assert loaded.loc[0, "Transfer Value"] == 1_500_000.0
     assert metadata["league_assumption"] == "division_broad_role_cohort"
     assert any("Division column detected" in warning for warning in metadata["warnings"])
+
+
+def test_loads_csv_with_bom_and_league_alias(csv_buffer):
+    df = build_complete_df(["ST"])
+    df = df.rename(columns={"Division": "League", "Inf": "\ufeffInf"})
+    loaded, metadata = load_fm_csv(csv_buffer(df))
+    assert loaded.loc[0, "Division__raw"] == "Division A"
+    assert metadata["league_assumption"] == "division_broad_role_cohort"

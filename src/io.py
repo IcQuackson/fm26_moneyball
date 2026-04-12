@@ -11,6 +11,19 @@ from src.constants import DEFAULT_DIVISION, IDENTIFIER_COLUMNS, REQUIRED_COLUMNS
 from src.parse_numeric import parse_numeric_series
 
 
+def _normalize_columns(columns: list[str]) -> list[str]:
+    normalized: list[str] = []
+    for column in columns:
+        clean = str(column).replace("\ufeff", "").strip()
+        lower = clean.lower()
+        if lower == "league":
+            clean = "Division"
+        elif lower == "division":
+            clean = "Division"
+        normalized.append(clean)
+    return normalized
+
+
 def _read_bytes(source: Any) -> bytes:
     if hasattr(source, "read"):
         payload = source.read()
@@ -30,6 +43,7 @@ def load_fm_csv(source: Any) -> tuple[pd.DataFrame, dict]:
         text = payload.decode("latin-1")
 
     raw_df = pd.read_csv(StringIO(text), sep=";", dtype=str, keep_default_na=False)
+    raw_df.columns = _normalize_columns(raw_df.columns.tolist())
     missing = [column for column in REQUIRED_COLUMNS if column not in raw_df.columns]
     if missing:
         raise ValueError(f"Missing required columns: {', '.join(missing)}")
