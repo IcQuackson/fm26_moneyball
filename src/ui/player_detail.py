@@ -3,7 +3,14 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from src.ui.presentation import confidence_label, format_metric_label, format_role_label, percentile_band, percentile_style
+from src.ui.presentation import (
+    confidence_label,
+    format_role_label,
+    formatted_table,
+    percentile_band,
+    percentile_text,
+    trait_label,
+)
 
 
 def _category_series(row: pd.Series) -> pd.Series:
@@ -18,7 +25,7 @@ def _radar_frame(players: pd.DataFrame) -> pd.DataFrame:
             rows.append(
                 {
                     "player": row["player"],
-                    "category": format_metric_label(metric.replace("__score", "")),
+                    "category": trait_label(metric.replace("__score", "")),
                     "percentile": float(value),
                 }
             )
@@ -50,18 +57,18 @@ def render_player_detail(results: pd.DataFrame, traces: dict, diagnostics: dict)
     if not top_categories.empty:
         category_cols = st.columns(len(top_categories))
         for col, (label, value) in zip(category_cols, top_categories.items()):
-            col.metric(format_metric_label(label.replace("__score", "")), f"{value:.0f}th pct")
+            col.metric(trait_label(label.replace("__score", "")), percentile_text(value))
 
     confidence_text, confidence_value = confidence_label(row["uncertainty_score"])
     meta_cols = st.columns(4)
-    meta_cols[0].metric("Scout Confidence", confidence_text if confidence_value is None else f"{confidence_text} ({confidence_value:.0f})")
-    meta_cols[1].metric("Value For Money", f"{row['value_gap_score']:.0f}th pct" if pd.notna(row["value_gap_score"]) else "NA")
-    meta_cols[2].metric("Market Cost", f"{row['cost_score']:.0f}th pct" if pd.notna(row["cost_score"]) else "NA")
+    meta_cols[0].metric("Scout Confidence", confidence_text if confidence_value is None else f"{confidence_text} ({percentile_text(confidence_value)})")
+    meta_cols[1].metric("Value Pick", percentile_text(row["value_gap_score"]) if pd.notna(row["value_gap_score"]) else "NA")
+    meta_cols[2].metric("Price Level", percentile_text(row["cost_score"]) if pd.notna(row["cost_score"]) else "NA")
     meta_cols[3].metric("Minutes Played", f"{int(row['minutes'])}" if pd.notna(row["minutes"]) else "NA")
 
     if not category_scores.empty:
-        category_display = category_scores.rename(lambda value: format_metric_label(value.replace("__score", "")))
-        st.markdown("**Role Fit**")
+        category_display = category_scores.rename(lambda value: trait_label(value.replace("__score", "")))
+        st.markdown("**Role Fit Snapshot**")
         st.bar_chart(category_display)
         category_table = category_display.rename("Percentile").to_frame()
         cohort_category_scores = results[
@@ -70,13 +77,13 @@ def render_player_detail(results: pd.DataFrame, traces: dict, diagnostics: dict)
         category_ranks = {}
         for metric in category_scores.index:
             rank_series = cohort_category_scores[metric].rank(method="min", ascending=False)
-            category_ranks[format_metric_label(metric.replace("__score", ""))] = int(rank_series.loc[row.name]) if pd.notna(rank_series.loc[row.name]) else pd.NA
+            category_ranks[trait_label(metric.replace("__score", ""))] = int(rank_series.loc[row.name]) if pd.notna(rank_series.loc[row.name]) else pd.NA
         category_table["League Rank"] = category_table.index.map(category_ranks.get)
         category_table["Grade"] = category_table["Percentile"].map(percentile_band)
-        st.dataframe(category_table.style.map(percentile_style, subset=["Percentile"]), use_container_width=True)
+        st.dataframe(formatted_table(category_table, percent_columns=["Percentile"]), use_container_width=True)
 
         radar_data = _radar_frame(pd.DataFrame([row]))
-        st.markdown("**Role Fit Radar**")
+        st.markdown("**Role Shape Radar**")
         st.vega_lite_chart(
             radar_data,
             {
@@ -116,7 +123,7 @@ def render_player_detail(results: pd.DataFrame, traces: dict, diagnostics: dict)
         }
     )
     metric_panel = pd.DataFrame(index=used_primitives)
-    metric_panel["Metric"] = [format_metric_label(metric) for metric in used_primitives]
+    metric_panel["Metric"] = [trait_label(metric) for metric in used_primitives]
     metric_panel["Percentile"] = metric_percentiles.loc[raw_frame.index.get_loc(player_role_id), used_primitives].values
     metric_panel["Grade"] = metric_panel["Percentile"].map(percentile_band)
     metric_panel["Match Value"] = raw_frame.loc[player_role_id, used_primitives].values
@@ -130,9 +137,9 @@ def render_player_detail(results: pd.DataFrame, traces: dict, diagnostics: dict)
     bottom_metrics = metric_panel.tail(5).sort_values("Percentile", ascending=True)
     strength_cols = st.columns(2)
     strength_cols[0].markdown("**Standout Areas**")
-    strength_cols[0].dataframe(top_metrics.style.map(percentile_style, subset=["Percentile"]), use_container_width=True)
+    strength_cols[0].dataframe(formatted_table(top_metrics, percent_columns=["Percentile"]), use_container_width=True)
     strength_cols[1].markdown("**Monitor Areas**")
-    strength_cols[1].dataframe(bottom_metrics.style.map(percentile_style, subset=["Percentile"]), use_container_width=True)
+    strength_cols[1].dataframe(formatted_table(bottom_metrics, percent_columns=["Percentile"]), use_container_width=True)
 
     cohort_pool = results[
         (results["division"] == selected_division) & (results["broad_role"] == selected_role)
@@ -174,41 +181,49 @@ def render_player_detail(results: pd.DataFrame, traces: dict, diagnostics: dict)
             ["player", "club", "minutes", "value_gap_score", "cost_score", "uncertainty_score"]
             + [column for column in compare_rows.columns if column.endswith("__score") and column not in {"performance_score", "cost_score", "value_gap_score", "uncertainty_score"}]
         ].copy()
-        compare_table = compare_table.rename(columns=lambda value: format_metric_label(value.replace("__score", "")) if value.endswith("__score") else value)
+        compare_table = compare_table.rename(columns=lambda value: trait_label(value.replace("__score", "")) if value.endswith("__score") else value)
         compare_table = compare_table.rename(
             columns={
                 "player": "Player",
                 "club": "Club",
                 "minutes": "Minutes",
-                "value_gap_score": "Value For Money",
-                "cost_score": "Cost",
+                "value_gap_score": "Value Pick",
+                "cost_score": "Price Level",
                 "uncertainty_score": "Risk",
             }
         )
-        percentile_columns = [column for column in compare_table.columns if column not in {"Player", "Club", "Minutes"}]
+        percentile_columns = [column for column in compare_table.columns if column not in {"Player", "Club", "Minutes", "Risk"}]
+        compare_table["Risk"] = compare_table["Risk"].map(lambda value: confidence_label(value)[0])
         st.markdown("**Side-by-Side Comparison**")
-        st.dataframe(compare_table.style.map(percentile_style, subset=percentile_columns), use_container_width=True)
+        st.dataframe(formatted_table(compare_table, percent_columns=percentile_columns), use_container_width=True)
 
     market_panel = pd.DataFrame(
         {
-            "Estimated Transfer Value": [row["Transfer Value"]],
+            "Estimated Fee": [row["Transfer Value"]],
             "Weekly Wage": [row["Wage"]],
-            "Cost Percentile": [row["cost_score"]],
-            "Value For Money": [row["value_gap_score"]],
+            "Price Level": [row["cost_score"]],
+            "Value Pick": [row["value_gap_score"]],
         }
     )
     st.markdown("**Market Snapshot**")
-    st.dataframe(market_panel, use_container_width=True)
+    st.dataframe(
+        formatted_table(
+            market_panel,
+            percent_columns=["Price Level", "Value Pick"],
+            money_columns=["Estimated Fee", "Weekly Wage"],
+        ),
+        use_container_width=True,
+    )
 
     with st.expander("Advanced Model Detail"):
         advanced_panel = pd.DataFrame(index=used_primitives)
-        advanced_panel["Metric"] = [format_metric_label(metric) for metric in used_primitives]
-        advanced_panel["Raw"] = raw_frame.loc[player_role_id, used_primitives].values
-        advanced_panel["Stability-Adjusted"] = shrunk.loc[raw_frame.index.get_loc(player_role_id), used_primitives].values
-        advanced_panel["Role-Normalized"] = standardized.loc[raw_frame.index.get_loc(player_role_id), used_primitives].values
-        advanced_panel["Team-Adjusted"] = adjusted.loc[raw_frame.index.get_loc(player_role_id), used_primitives].values
+        advanced_panel["Metric"] = [trait_label(metric) for metric in used_primitives]
+        advanced_panel["Match Value"] = raw_frame.loc[player_role_id, used_primitives].values
+        advanced_panel["Smoothed"] = shrunk.loc[raw_frame.index.get_loc(player_role_id), used_primitives].values
+        advanced_panel["Role Context"] = standardized.loc[raw_frame.index.get_loc(player_role_id), used_primitives].values
+        advanced_panel["Team Context"] = adjusted.loc[raw_frame.index.get_loc(player_role_id), used_primitives].values
         advanced_panel["Percentile"] = metric_percentiles.loc[raw_frame.index.get_loc(player_role_id), used_primitives].values
-        st.dataframe(advanced_panel.style.map(percentile_style, subset=["Percentile"]), use_container_width=True)
+        st.dataframe(formatted_table(advanced_panel, percent_columns=["Percentile"]), use_container_width=True)
 
     warnings = diagnostics["role_warnings"].get(cohort_key, [])
     if warnings:

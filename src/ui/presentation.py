@@ -60,6 +60,10 @@ def format_role_label(role: str) -> str:
     return ROLE_LABELS.get(role, role)
 
 
+def trait_label(metric: str) -> str:
+    return format_metric_label(metric.replace("__score", ""))
+
+
 def percentile_band(value: float | int | None) -> str:
     if value is None or pd.isna(value):
         return "Not enough data"
@@ -105,3 +109,51 @@ def percentile_style(value: float | int | None) -> str:
     color = percentile_color(value)
     text = "#ffffff" if color not in {"#f3f4f6", "#ca8a04"} else "#111827"
     return f"background-color: {color}; color: {text}; font-weight: 600;"
+
+
+def percentile_text(value: float | int | None) -> str:
+    if value is None or pd.isna(value):
+        return "NA"
+    return f"{float(value):.0f}/100"
+
+
+def compact_number(value: float | int | None) -> str:
+    if value is None or pd.isna(value):
+        return "NA"
+    value = float(value)
+    if value >= 1_000_000_000:
+        return f"{value / 1_000_000_000:.1f}B"
+    if value >= 1_000_000:
+        return f"{value / 1_000_000:.1f}M"
+    if value >= 1_000:
+        return f"{value / 1_000:.0f}K"
+    return f"{value:.0f}"
+
+
+def money_text(value: float | int | None) -> str:
+    if value is None or pd.isna(value):
+        return "NA"
+    return f"£{compact_number(value)}"
+
+
+def whole_number_text(value: float | int | None) -> str:
+    if value is None or pd.isna(value):
+        return "NA"
+    return f"{float(value):.0f}"
+
+
+def formatted_table(frame: pd.DataFrame, percent_columns: list[str] | None = None, money_columns: list[str] | None = None) -> pd.io.formats.style.Styler:
+    percent_columns = percent_columns or []
+    money_columns = money_columns or []
+    formatter: dict[str, object] = {}
+    for column in frame.columns:
+        if column in percent_columns:
+            formatter[column] = percentile_text
+        elif column in money_columns:
+            formatter[column] = money_text
+        elif pd.api.types.is_float_dtype(frame[column]) or pd.api.types.is_integer_dtype(frame[column]):
+            formatter[column] = whole_number_text
+    styler = frame.style.format(formatter)
+    if percent_columns:
+        styler = styler.map(percentile_style, subset=percent_columns)
+    return styler

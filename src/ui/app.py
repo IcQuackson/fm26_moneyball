@@ -10,6 +10,42 @@ from src.ui.overview import render_overview
 from src.ui.player_detail import render_player_detail
 
 
+def _inject_theme() -> None:
+    st.markdown(
+        """
+        <style>
+        .stApp {
+            background:
+                radial-gradient(circle at top left, rgba(20, 184, 166, 0.16), transparent 28%),
+                radial-gradient(circle at top right, rgba(245, 158, 11, 0.14), transparent 24%),
+                linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+        }
+        .block-container {
+            padding-top: 1.4rem;
+            padding-bottom: 2.4rem;
+        }
+        div[data-testid="stMetric"] {
+            background: rgba(255, 255, 255, 0.82);
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            border-radius: 18px;
+            padding: 0.8rem 1rem;
+            box-shadow: 0 14px 30px rgba(15, 23, 42, 0.06);
+        }
+        div[data-testid="stDataFrame"], div[data-testid="stVegaLiteChart"], div[data-testid="stMarkdownContainer"] > p {
+            border-radius: 16px;
+        }
+        button[kind="secondary"], button[kind="primary"] {
+            border-radius: 999px;
+        }
+        div[data-baseweb="select"] > div {
+            border-radius: 14px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _ensure_session_state() -> None:
     if "uncertainty_executor" not in st.session_state:
         st.session_state["uncertainty_executor"] = ThreadPoolExecutor(max_workers=1)
@@ -51,11 +87,12 @@ def _resolve_uncertainty_future(payload: dict) -> tuple[dict, str | None]:
 
 def main() -> None:
     st.set_page_config(page_title="FM26 Moneyball Analyzer", layout="wide")
+    _inject_theme()
     st.title("FM26 Scout Dashboard")
-    st.caption("Player profiles, percentile scouting, and value-for-money signals from your Football Manager export.")
+    st.caption("Shortlist players by league, trait, price, and role fit from your Football Manager export.")
     _ensure_session_state()
 
-    upload = st.file_uploader("Upload FM CSV", type=["csv"])
+    upload = st.file_uploader("Upload FM export", type=["csv"])
     if upload is None:
         st.info("Upload a semicolon-delimited FM export to build the cohort dashboard.")
         return

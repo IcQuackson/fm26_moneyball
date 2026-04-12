@@ -142,8 +142,8 @@ class FakeStreamlit:
     def bar_chart(self, value):
         self.calls.append(("bar_chart", value))
 
-    def markdown(self, value):
-        self.calls.append(("markdown", value))
+    def markdown(self, value, **kwargs):
+        self.calls.append(("markdown", value, kwargs))
 
     def button(self, label):
         self.calls.append(("button", label))
@@ -253,7 +253,7 @@ def test_render_overview_handles_empty(monkeypatch):
 
 
 def test_render_overview_full(monkeypatch):
-    fake = FakeStreamlit(selectbox_values=["All", "All", "All"], slider_values=[(15, 45), (0, 1200)])
+    fake = FakeStreamlit(selectbox_values=["All", "All", "AM_W", "finisher__score"], slider_values=[(15, 45), (0, 1200), 15])
     monkeypatch.setattr(overview_ui, "st", fake)
     overview_ui.render_overview(sample_results())
     assert any(call[0] == "download_button" for call in fake.calls)
@@ -261,7 +261,7 @@ def test_render_overview_full(monkeypatch):
 
 
 def test_render_overview_handles_zero_minutes(monkeypatch):
-    fake = FakeStreamlit(selectbox_values=["All", "All", "All"], slider_values=[(15, 45)])
+    fake = FakeStreamlit(selectbox_values=["All", "All", "AM_W", "finisher__score"], slider_values=[(15, 45), 15])
     monkeypatch.setattr(overview_ui, "st", fake)
     results = sample_results().copy()
     results["minutes"] = 0
@@ -270,10 +270,10 @@ def test_render_overview_handles_zero_minutes(monkeypatch):
 
 
 def test_render_overview_shows_league_rankings(monkeypatch):
-    fake = FakeStreamlit(selectbox_values=["Division A", "ST", "All", "finisher__score"], slider_values=[(15, 45), (0, 1200)])
+    fake = FakeStreamlit(selectbox_values=["All", "All", "ST", "finisher__score"], multiselect_values=[["Division A"]], slider_values=[(15, 45), (0, 1200), 15])
     monkeypatch.setattr(overview_ui, "st", fake)
     overview_ui.render_overview(sample_results())
-    assert any(call[0] == "selectbox" and call[1] == "Ranking Category" for call in fake.calls)
+    assert any(call[0] == "selectbox" and call[1] == "Trait To Rank" for call in fake.calls)
 
 
 def test_render_player_detail_handles_empty(monkeypatch):
