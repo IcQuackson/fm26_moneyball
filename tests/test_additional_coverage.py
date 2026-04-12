@@ -50,14 +50,14 @@ def test_parse_numeric_extra_branches():
 def test_family_scores_warn_when_fewer_than_two_primitives():
     adjusted = pd.DataFrame({"Saves/90": [1.0, 2.0, 3.0]})
     family_df, metadata, warnings, used_primitives = compute_family_scores("GK", adjusted)
-    assert family_df["shot_stopping__raw"].isna().all()
-    assert metadata["shot_stopping"]["loadings"] is None
+    assert family_df["shot_stopper__raw"].isna().all()
+    assert metadata["shot_stopper"]["loadings"] is None
     assert warnings
     assert used_primitives == set()
 
 
 def test_performance_scores_warn_when_too_few_families():
-    family_df = pd.DataFrame({"threat__raw": [0.1, 0.2, 0.3], "threat__score": [10, 20, 30]})
+    family_df = pd.DataFrame({"finisher__raw": [0.1, 0.2, 0.3], "finisher__score": [10, 20, 30]})
     result, metadata, warnings = compute_performance_scores(family_df)
     assert result["performance_raw"].isna().all()
     assert metadata["loadings"] is None

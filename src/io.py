@@ -7,7 +7,7 @@ from typing import Any
 
 import pandas as pd
 
-from src.constants import IDENTIFIER_COLUMNS, REQUIRED_COLUMNS
+from src.constants import DEFAULT_DIVISION, IDENTIFIER_COLUMNS, REQUIRED_COLUMNS
 from src.parse_numeric import parse_numeric_series
 
 
@@ -33,6 +33,12 @@ def load_fm_csv(source: Any) -> tuple[pd.DataFrame, dict]:
     missing = [column for column in REQUIRED_COLUMNS if column not in raw_df.columns]
     if missing:
         raise ValueError(f"Missing required columns: {', '.join(missing)}")
+    division_warning = None
+    if "Division" not in raw_df.columns:
+        raw_df["Division"] = DEFAULT_DIVISION
+        division_warning = (
+            "Division column was not present. Cohorts were computed within the whole upload for each broad role."
+        )
 
     parsed_df = raw_df.copy()
     for column in raw_df.columns:
@@ -49,6 +55,7 @@ def load_fm_csv(source: Any) -> tuple[pd.DataFrame, dict]:
         "league_assumption": "unverified_single_upload_cohort",
         "warnings": [
             "League homogeneity cannot be verified because the export has no League column. One uploaded file is treated as one cohort."
-        ],
+        ]
+        + ([division_warning] if division_warning is not None else []),
     }
     return df, metadata

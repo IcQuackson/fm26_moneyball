@@ -33,6 +33,7 @@ def build_complete_df(positions: list[str]) -> pd.DataFrame:
                 "Player": f"Player {idx}",
                 "Nation": "England",
                 "Club": f"Club {idx % 4}",
+                "Division": "Division A",
                 "Position": position,
                 "Age": str(19 + idx),
                 "Ability": str(100 + idx),

@@ -17,7 +17,7 @@ from src.shrinkage import shrink_role_primitives
 from src.standardize import standardize_role_primitives
 from src.team_adjustment import adjust_role_metrics
 from src.uncertainty import bootstrap_perf_raw, compute_uncertainty_scores
-from src.utils import flatten
+from src.utils import flatten, percentile_rank
 
 UNCERTAINTY_COLUMNS = [
     "uncertainty_raw",
@@ -26,6 +26,9 @@ UNCERTAINTY_COLUMNS = [
     "shrinkage_intensity",
     "exposure_uncertainty",
 ]
+
+def make_cohort_key(division: str, role: str) -> str:
+    return f"{division}::{role}"
 
 
 def _report_progress(progress_callback, phase: str, progress: float, message: str) -> None:
@@ -43,6 +46,8 @@ def _ensure_uncertainty_columns(results: pd.DataFrame) -> pd.DataFrame:
 
 def score_role_core(role_df: pd.DataFrame) -> dict:
     role = role_df["broad_role"].iloc[0]
+    division = role_df["Division__raw"].iloc[0]
+    cohort_key = make_cohort_key(division, role)
     primitive_columns = flatten(FAMILY_DEFINITIONS[role].values())
     primitive_columns = sorted(set(primitive_columns) | {"E"})
 
@@ -63,6 +68,7 @@ def score_role_core(role_df: pd.DataFrame) -> dict:
                     "player_role_id",
                     "Player__raw",
                     "Club__raw",
+                    "Division__raw",
                     "Position__raw",
                     "Age",
                     "Minutes",
@@ -75,6 +81,7 @@ def score_role_core(role_df: pd.DataFrame) -> dict:
                 columns={
                     "Player__raw": "player",
                     "Club__raw": "club",
+                    "Division__raw": "division",
                     "Position__raw": "position",
                     "Age": "age",
                     "Minutes": "minutes",
@@ -92,17 +99,21 @@ def score_role_core(role_df: pd.DataFrame) -> dict:
 
     warnings = []
     if len(role_df) < MIN_ROLE_COHORT:
-        warnings.append(f"{role} cohort has only {len(role_df)} rows; factor extraction may be unstable.")
+        warnings.append(f"{cohort_key} cohort has only {len(role_df)} rows; factor extraction may be unstable.")
     warnings.extend(team_warnings)
     warnings.extend(family_warnings)
     warnings.extend(performance_warnings)
     warnings.extend(cost_warnings)
+
+    metric_percentiles = adjusted_df.apply(percentile_rank)
+    results["cohort_key"] = cohort_key
 
     return {
         "results": _ensure_uncertainty_columns(results),
         "shrunk": shrunk_df,
         "standardized": standardized_df,
         "adjusted": adjusted_df,
+        "metric_percentiles": metric_percentiles,
         "shrink_delta": shrink_delta,
         "used_primitives": used_primitives,
         "artifacts": {
@@ -118,7 +129,7 @@ def score_role_core(role_df: pd.DataFrame) -> dict:
 
 
 def _compute_role_uncertainty_task(
-    role: str,
+    cohort_key: str,
     role_df: pd.DataFrame,
     shrink_delta: pd.DataFrame,
     used_primitives: set[str],
@@ -132,20 +143,20 @@ def _compute_role_uncertainty_task(
     )
     uncertainty_df = uncertainty_df.copy()
     uncertainty_df.index = role_df["player_role_id"].values
-    return role, uncertainty_df, uncertainty_meta, uncertainty_warnings
+    return cohort_key, uncertainty_df, uncertainty_meta, uncertainty_warnings
 
 
 def _merge_uncertainty_into_payload(payload: dict, role_outputs: list[tuple[str, pd.DataFrame, dict, list[str]]]) -> dict:
     results = payload["results"].copy()
     diagnostics = payload["diagnostics"]
 
-    for role, uncertainty_df, uncertainty_meta, uncertainty_warnings in role_outputs:
-        role_mask = results["broad_role"] == role
+    for cohort_key, uncertainty_df, uncertainty_meta, uncertainty_warnings in role_outputs:
+        role_mask = results["cohort_key"] == cohort_key
         role_ids = results.loc[role_mask, "player_role_id"]
         for column in UNCERTAINTY_COLUMNS:
             results.loc[role_mask, column] = role_ids.map(uncertainty_df[column])
-        diagnostics["role_artifacts"][role]["uncertainty"] = uncertainty_meta
-        diagnostics["role_warnings"][role].extend(uncertainty_warnings)
+        diagnostics["role_artifacts"][cohort_key]["uncertainty"] = uncertainty_meta
+        diagnostics["role_warnings"][cohort_key].extend(uncertainty_warnings)
 
     payload = dict(payload)
     payload["results"] = results
@@ -158,13 +169,13 @@ def _compute_uncertainty_stage(payload: dict, progress_callback=None) -> dict:
     traces = payload["traces"]
     role_jobs = [
         (
-            role,
+            cohort_key,
             trace["raw_primitives"],
             trace["shrink_delta"],
             trace["used_primitives"],
             BOOTSTRAP_ITERATIONS,
         )
-        for role, trace in traces.items()
+        for cohort_key, trace in traces.items()
     ]
     if not role_jobs:
         payload = dict(payload)
@@ -222,29 +233,33 @@ def run_core_pipeline(source, progress_callback=None) -> dict:
     role_results: list[pd.DataFrame] = []
     diagnostics = {
         "load_meta": load_meta,
-        "role_sizes": expanded["broad_role"].value_counts().sort_index(),
+        "role_sizes": expanded.groupby(["Division__raw", "broad_role"]).size().sort_index(),
         "role_artifacts": {},
         "role_warnings": {},
         "dropped_columns": {},
     }
 
     traces = {}
-    grouped_roles = list(expanded.groupby("broad_role", sort=False))
-    for index, (role, role_df) in enumerate(grouped_roles, start=1):
-        _report_progress(progress_callback, "core_scoring", 0.35 + 0.4 * (index - 1) / max(len(grouped_roles), 1), f"Scoring {role} cohort ({index}/{len(grouped_roles)}).")
+    grouped_roles = list(expanded.groupby(["Division__raw", "broad_role"], sort=False))
+    for index, ((division, role), role_df) in enumerate(grouped_roles, start=1):
+        cohort_key = make_cohort_key(division, role)
+        _report_progress(progress_callback, "core_scoring", 0.35 + 0.4 * (index - 1) / max(len(grouped_roles), 1), f"Scoring {cohort_key} cohort ({index}/{len(grouped_roles)}).")
         scored = score_role_core(role_df.reset_index(drop=True))
         role_results.append(scored["results"])
-        traces[role] = {
-            "raw_primitives": role_df,
+        traces[cohort_key] = {
+            "raw_primitives": role_df.reset_index(drop=True),
             "shrunk": scored["shrunk"],
             "standardized": scored["standardized"],
             "adjusted": scored["adjusted"],
+            "metric_percentiles": scored["metric_percentiles"],
             "shrink_delta": scored["shrink_delta"],
             "used_primitives": scored["used_primitives"],
+            "division": division,
+            "broad_role": role,
         }
-        diagnostics["role_artifacts"][role] = scored["artifacts"]
-        diagnostics["role_warnings"][role] = scored["warnings"]
-        diagnostics["dropped_columns"][role] = {
+        diagnostics["role_artifacts"][cohort_key] = scored["artifacts"]
+        diagnostics["role_warnings"][cohort_key] = scored["warnings"]
+        diagnostics["dropped_columns"][cohort_key] = {
             family: meta.get("dropped", [])
             for family, meta in scored["artifacts"]["family"].items()
         }

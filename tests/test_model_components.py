@@ -54,7 +54,7 @@ def test_family_score_sign_orientation_is_positive():
     )
     family_df, _, _, _ = compute_family_scores("ST", adjusted)
     reference = adjusted[["Shot/90", "ShT/90", "xG/90", "NP-xG/90", "Goals per 90 minutes"]].mean(axis=1)
-    corr = np.corrcoef(family_df["threat_volume__raw"], reference)[0, 1]
+    corr = np.corrcoef(family_df["shot_volume__raw"], reference)[0, 1]
     assert corr > 0
 
 

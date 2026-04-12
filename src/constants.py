@@ -141,6 +141,7 @@ IDENTIFIER_COLUMNS = {
     "Player",
     "Nation",
     "Club",
+    "Division",
     "Position",
     "Preferred Foot",
     "Right Foot",
@@ -237,24 +238,25 @@ NORMAL_PRIMITIVES = {
 }
 
 ROLE_ORDER = ["GK", "CB", "FB_WB", "DM", "CM", "AM_W", "ST"]
+DEFAULT_DIVISION = "__UPLOAD_COHORT__"
 
 FAMILY_DEFINITIONS = {
     "GK": {
-        "shot_stopping": ["Saves/90", "Sv %", "xSv %", "xGP/90", "penalty_save_rate"],
-        "handling_prevention": ["Svh", "Svp", "Svt", "Con/90", "Cln/90"],
-        "distribution_security": ["Ps A/90", "pass_completion", "PsP", "Pr passes/90"],
+        "shot_stopper": ["Saves/90", "Sv %", "xSv %", "xGP/90", "penalty_save_rate"],
+        "prevention_control": ["Svh", "Svp", "Svt", "Con/90", "Cln/90"],
+        "distributor": ["Ps A/90", "pass_completion", "PsP", "Pr passes/90"],
     },
     "CB": {
-        "disruption": ["Pres C/90", "Poss Won/90", "K Tck/90", "Int/90", "Tck/90", "tackle_success"],
-        "box_defending": ["Clr/90", "Blk/90", "Shts Blckd/90"],
-        "aerial_control": ["Hdrs W/90", "header_win_rate", "K Hdrs/90", "Aer A/90", "Hdrs L/90"],
-        "progression_security": ["Ps A/90", "pass_completion", "PsP", "Pr passes/90", "Poss Lost/90"],
+        "ball_winner": ["Pres C/90", "Poss Won/90", "K Tck/90", "Int/90", "Tck/90", "tackle_success"],
+        "box_defender": ["Clr/90", "Blk/90", "Shts Blckd/90"],
+        "aerial_defender": ["Hdrs W/90", "header_win_rate", "K Hdrs/90", "Aer A/90", "Hdrs L/90"],
+        "progressor": ["Ps A/90", "pass_completion", "PsP", "Pr passes/90", "Poss Lost/90"],
         "discipline_security": ["Fouls Made", "Yel", "Red cards", "MLG"],
     },
     "FB_WB": {
-        "defending": ["Pres C/90", "Poss Won/90", "K Tck/90", "Int/90", "Tck/90", "tackle_success"],
-        "progression": ["PsP", "Pr passes/90", "Ps A/90", "pass_completion", "Drb/90"],
-        "wide_creation": [
+        "defender": ["Pres C/90", "Poss Won/90", "K Tck/90", "Int/90", "Tck/90", "tackle_success"],
+        "progressor": ["PsP", "Pr passes/90", "Ps A/90", "pass_completion", "Drb/90"],
+        "creator": [
             "OP-Crs C/90",
             "OP-Crs A/90",
             "open_play_crossing_completion",
@@ -270,18 +272,18 @@ FAMILY_DEFINITIONS = {
         "discipline_security": ["Poss Lost/90", "Fouls Made", "Yel", "Red cards", "MLG"],
     },
     "DM": {
-        "ball_winning": ["Pres C/90", "Poss Won/90", "K Tck/90", "Int/90", "Tck/90", "tackle_success"],
-        "retention_security": ["pass_completion", "Ps A/90", "Poss Lost/90"],
-        "progression": ["PsP", "Pr passes/90", "Ps A/90", "OP-KP/90", "KP/90"],
+        "ball_winner": ["Pres C/90", "Poss Won/90", "K Tck/90", "Int/90", "Tck/90", "tackle_success"],
+        "retainer": ["pass_completion", "Ps A/90", "Poss Lost/90"],
+        "progressor": ["PsP", "Pr passes/90", "Ps A/90", "OP-KP/90", "KP/90"],
         "creation": ["Ch C/90", "CCC", "xA/90", "Asts/90"],
-        "discipline": ["Fouls Made", "Yel", "Red cards", "MLG"],
+        "discipline_security": ["Fouls Made", "Yel", "Red cards", "MLG"],
     },
     "CM": {
-        "retention": ["pass_completion", "Ps A/90", "Poss Lost/90"],
-        "progression": ["PsP", "Pr passes/90", "Drb/90"],
+        "retainer": ["pass_completion", "Ps A/90", "Poss Lost/90"],
+        "progressor": ["PsP", "Pr passes/90", "Drb/90"],
         "creation": ["KP/90", "OP-KP/90", "Ch C/90", "CCC", "xA/90", "Asts/90"],
-        "ball_winning": ["Pres C/90", "Poss Won/90", "K Tck/90", "Int/90", "Tck/90", "tackle_success"],
-        "shot_contribution": [
+        "ball_winner": ["Pres C/90", "Poss Won/90", "K Tck/90", "Int/90", "Tck/90", "tackle_success"],
+        "shooter": [
             "Shot/90",
             "ShT/90",
             "xG/90",
@@ -291,7 +293,8 @@ FAMILY_DEFINITIONS = {
         ],
     },
     "AM_W": {
-        "threat": [
+        "creator": ["KP/90", "OP-KP/90", "Ch C/90", "CCC", "xA/90", "Asts/90"],
+        "finisher": [
             "Shot/90",
             "ShT/90",
             "shot_on_target_rate",
@@ -301,16 +304,24 @@ FAMILY_DEFINITIONS = {
             "finishing_over_expected",
             "Goals per 90 minutes",
         ],
-        "creation": ["KP/90", "OP-KP/90", "Ch C/90", "CCC", "xA/90", "Asts/90"],
-        "progression_carrying": ["PsP", "Pr passes/90", "Drb/90", "pass_completion", "Ps A/90"],
-        "pressing_work": ["Pres A/90", "Pres C/90", "Sprints/90", "Dist/90"],
-        "discipline_security": ["Poss Lost/90", "Off", "Fouls Made", "Yel", "MLG"],
+        "progressor": ["PsP", "Pr passes/90", "Drb/90", "pass_completion", "Ps A/90"],
+        "presser": ["Pres A/90", "Pres C/90", "Sprints/90", "Dist/90"],
+        "security": ["Poss Lost/90", "Off", "Fouls Made", "Yel", "MLG"],
     },
     "ST": {
-        "threat_volume": ["Shot/90", "ShT/90", "xG/90", "NP-xG/90", "Goals per 90 minutes"],
-        "finishing_quality": ["shot_on_target_rate", "Conv %", "xG/shot", "finishing_over_expected"],
-        "link_creation": ["KP/90", "OP-KP/90", "Ch C/90", "xA/90", "Asts/90", "pass_completion", "PsP"],
-        "pressing": ["Pres A/90", "Pres C/90", "Poss Won/90"],
+        "finisher": [
+            "Goals per 90 minutes",
+            "xG/90",
+            "NP-xG/90",
+            "ShT/90",
+            "shot_on_target_rate",
+            "Conv %",
+            "xG/shot",
+            "finishing_over_expected",
+        ],
+        "shot_volume": ["Shot/90", "ShT/90", "xG/90", "NP-xG/90"],
+        "creator": ["KP/90", "OP-KP/90", "Ch C/90", "xA/90", "Asts/90", "pass_completion", "PsP"],
+        "presser": ["Pres A/90", "Pres C/90", "Poss Won/90"],
         "aerial_presence": ["Hdrs W/90", "header_win_rate", "K Hdrs/90", "Aer A/90"],
     },
 }

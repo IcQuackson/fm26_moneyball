@@ -49,10 +49,12 @@ def test_pipeline_produces_multiple_role_rows(monkeypatch):
 def test_pipeline_returns_core_first_then_uncertainty(monkeypatch):
     monkeypatch.setattr(pipeline_module, "BOOTSTRAP_ITERATIONS", 5)
     df = build_complete_df(["ST"] * 8)
+    df["Division"] = "Top Division"
     payload = run_pipeline(dataframe_to_bytes(df))
 
     assert payload["uncertainty_state"] == "pending"
     assert payload["results"]["uncertainty_score"].isna().all()
+    assert set(payload["results"]["division"]) == {"Top Division"}
 
     completed = compute_uncertainty_for_file_hash(payload["load_meta"]["file_hash"])
     assert completed["uncertainty_state"] == "complete"

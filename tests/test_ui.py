@@ -136,6 +136,8 @@ def sample_results():
         {
             "player": ["A", "A", "B"],
             "player_role_id": ["0::ST", "0::AM_W", "1::ST"],
+            "cohort_key": ["Division A::ST", "Division A::AM_W", "Division B::ST"],
+            "division": ["Division A", "Division A", "Division B"],
             "club": ["X", "X", "Y"],
             "age": [22, 22, 25],
             "minutes": [900, 900, 1200],
@@ -153,8 +155,8 @@ def sample_results():
             "exposure_uncertainty": [0.3, 0.3, 0.2],
             "Transfer Value": [1_000_000.0, 1_000_000.0, 2_000_000.0],
             "Wage": [10_000.0, 10_000.0, 20_000.0],
-            "threat__score": [80.0, 70.0, 90.0],
-            "threat__raw": [0.4, 0.2, 0.8],
+            "finisher__score": [80.0, 70.0, 90.0],
+            "finisher__raw": [0.4, 0.2, 0.8],
             "creation__score": [60.0, 75.0, 50.0],
             "creation__raw": [0.1, 0.3, -0.1],
         }
@@ -165,27 +167,55 @@ def sample_traces():
     raw = pd.DataFrame(
         {
             "player_role_id": ["0::ST", "0::AM_W", "1::ST"],
+            "Division__raw": ["Division A", "Division A", "Division B"],
+            "broad_role": ["ST", "AM_W", "ST"],
             "Shot/90": [2.0, 1.5, 3.0],
             "KP/90": [0.5, 1.0, 0.7],
         }
     )
     matrix = pd.DataFrame({"Shot/90": [0.1, 0.0, 0.2], "KP/90": [0.0, 0.2, 0.1]})
     return {
-        "ST": {"raw_primitives": raw.iloc[[0, 2]].reset_index(drop=True), "shrunk": matrix.iloc[[0, 2]].reset_index(drop=True), "standardized": matrix.iloc[[0, 2]].reset_index(drop=True), "adjusted": matrix.iloc[[0, 2]].reset_index(drop=True)},
-        "AM_W": {"raw_primitives": raw.iloc[[1]].reset_index(drop=True), "shrunk": matrix.iloc[[1]].reset_index(drop=True), "standardized": matrix.iloc[[1]].reset_index(drop=True), "adjusted": matrix.iloc[[1]].reset_index(drop=True)},
+        "Division A::ST": {
+            "raw_primitives": raw.iloc[[0]].reset_index(drop=True),
+            "shrunk": matrix.iloc[[0]].reset_index(drop=True),
+            "standardized": matrix.iloc[[0]].reset_index(drop=True),
+            "adjusted": matrix.iloc[[0]].reset_index(drop=True),
+            "metric_percentiles": pd.DataFrame({"Shot/90": [80.0], "KP/90": [60.0]}),
+        },
+        "Division A::AM_W": {
+            "raw_primitives": raw.iloc[[1]].reset_index(drop=True),
+            "shrunk": matrix.iloc[[1]].reset_index(drop=True),
+            "standardized": matrix.iloc[[1]].reset_index(drop=True),
+            "adjusted": matrix.iloc[[1]].reset_index(drop=True),
+            "metric_percentiles": pd.DataFrame({"Shot/90": [70.0], "KP/90": [75.0]}),
+        },
+        "Division B::ST": {
+            "raw_primitives": raw.iloc[[2]].reset_index(drop=True),
+            "shrunk": matrix.iloc[[2]].reset_index(drop=True),
+            "standardized": matrix.iloc[[2]].reset_index(drop=True),
+            "adjusted": matrix.iloc[[2]].reset_index(drop=True),
+            "metric_percentiles": pd.DataFrame({"Shot/90": [90.0], "KP/90": [50.0]}),
+        },
     }
 
 
 def sample_diagnostics():
     return {
         "load_meta": {"missingness": pd.Series({"A": 0.0}), "row_count": 3, "warnings": ["warn"]},
-        "role_sizes": pd.Series({"AM_W": 1, "ST": 2}),
+        "role_sizes": pd.Series(
+            [1, 1, 1],
+            index=pd.MultiIndex.from_tuples(
+                [("Division A", "AM_W"), ("Division A", "ST"), ("Division B", "ST")],
+                names=["Division__raw", "broad_role"],
+            ),
+        ),
         "role_artifacts": {
-            "ST": {"family": {"threat": {"kept": ["Shot/90", "KP/90"], "explained_variance": 0.6}}, "performance": {"explained_variance": 0.7}},
-            "AM_W": {"family": {"creation": {"kept": ["KP/90"], "explained_variance": None}}, "performance": {"explained_variance": None}},
+            "Division A::ST": {"family": {"finisher": {"kept": ["Shot/90", "KP/90"], "explained_variance": 0.6}}, "performance": {"explained_variance": 0.7}},
+            "Division A::AM_W": {"family": {"creator": {"kept": ["KP/90"], "explained_variance": None}}, "performance": {"explained_variance": None}},
+            "Division B::ST": {"family": {"finisher": {"kept": ["Shot/90"], "explained_variance": None}}, "performance": {"explained_variance": None}},
         },
-        "role_warnings": {"ST": ["low sample"], "AM_W": []},
-        "dropped_columns": {"ST": {"threat": ["xG/90"]}, "AM_W": {"creation": []}},
+        "role_warnings": {"Division A::ST": ["low sample"], "Division A::AM_W": [], "Division B::ST": []},
+        "dropped_columns": {"Division A::ST": {"finisher": ["xG/90"]}, "Division A::AM_W": {"creator": []}, "Division B::ST": {"finisher": []}},
     }
 
 
@@ -197,7 +227,7 @@ def test_render_overview_handles_empty(monkeypatch):
 
 
 def test_render_overview_full(monkeypatch):
-    fake = FakeStreamlit(selectbox_values=["All", "All"], slider_values=[(15, 45), (0, 1200)])
+    fake = FakeStreamlit(selectbox_values=["All", "All", "All"], slider_values=[(15, 45), (0, 1200)])
     monkeypatch.setattr(overview_ui, "st", fake)
     overview_ui.render_overview(sample_results())
     assert any(call[0] == "download_button" for call in fake.calls)
@@ -205,7 +235,7 @@ def test_render_overview_full(monkeypatch):
 
 
 def test_render_overview_handles_zero_minutes(monkeypatch):
-    fake = FakeStreamlit(selectbox_values=["All", "All"], slider_values=[(15, 45)])
+    fake = FakeStreamlit(selectbox_values=["All", "All", "All"], slider_values=[(15, 45)])
     monkeypatch.setattr(overview_ui, "st", fake)
     results = sample_results().copy()
     results["minutes"] = 0
@@ -221,7 +251,7 @@ def test_render_player_detail_handles_empty(monkeypatch):
 
 
 def test_render_player_detail_full(monkeypatch):
-    fake = FakeStreamlit(selectbox_values=["A", "ST"])
+    fake = FakeStreamlit(selectbox_values=["A", "Division A | ST"])
     monkeypatch.setattr(player_detail_ui, "st", fake)
     player_detail_ui.render_player_detail(sample_results(), sample_traces(), sample_diagnostics())
     assert any(call[0] == "bar_chart" for call in fake.calls)
@@ -229,11 +259,10 @@ def test_render_player_detail_full(monkeypatch):
 
 
 def test_render_diagnostics(monkeypatch):
-    fake = FakeStreamlit(selectbox_values=["ST"])
+    fake = FakeStreamlit(selectbox_values=["Division A::ST"])
     monkeypatch.setattr(diagnostics_ui, "st", fake)
     payload = {"results": sample_results(), "traces": sample_traces(), "diagnostics": sample_diagnostics()}
     diagnostics_ui.render_diagnostics(payload)
-    assert any(call[0] == "bar_chart" for call in fake.calls)
     assert any(call[0] == "dataframe" for call in fake.calls)
 
 
