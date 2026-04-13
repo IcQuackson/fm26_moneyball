@@ -5,13 +5,19 @@ import io
 import pandas as pd
 import streamlit as st
 
+from src.constants import FAMILY_DEFINITIONS
 from src.ui.presentation import (
+    column_help_text,
+    column_config_for,
     confidence_label,
     format_role_label,
+    format_metric_label,
     formatted_table,
     percentile_band,
     percentile_text,
+    render_icon_table,
     trait_label,
+    trait_icon,
 )
 
 def _category_score_columns(results: pd.DataFrame) -> list[str]:
@@ -37,7 +43,26 @@ def _add_trait_summary(frame: pd.DataFrame, category_score_cols: list[str]) -> p
     return summary
 
 
-def _render_league_rankings(filtered: pd.DataFrame, category_score_cols: list[str]) -> None:
+def _role_stat_columns(role: str) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for primitives in FAMILY_DEFINITIONS[role].values():
+        for primitive in primitives:
+            if primitive not in seen:
+                ordered.append(primitive)
+                seen.add(primitive)
+    return ordered
+
+
+def _role_stat_label_map(role: str) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for family, primitives in FAMILY_DEFINITIONS[role].items():
+        for primitive in primitives:
+            labels.setdefault(primitive, format_metric_label(primitive))
+    return labels
+
+
+def _render_league_rankings(filtered: pd.DataFrame, category_score_cols: list[str], traces: dict) -> None:
     st.markdown("**League Trait Rankings**")
     if filtered.empty:
         st.info("No player profiles match the current filters.")
@@ -63,52 +88,102 @@ def _render_league_rankings(filtered: pd.DataFrame, category_score_cols: list[st
     if not role_trait_columns:
         st.info("No scored traits are available for that role inside the selected leagues.")
         return
-    ranking_category = st.selectbox(
-        "Trait To Rank",
-        options=role_trait_columns,
-        format_func=lambda value: trait_label(value.replace("__score", "")),
-    )
     top_n = st.slider("Players To Show Per League", 5, 50, 15)
 
     league_pool = filtered[filtered["broad_role"] == ranking_role].copy()
     if league_pool.empty:
         st.info("No player profiles are available for that role in the selected leagues.")
         return
+    for column in ["position", "goals", "assists", "Transfer Value"]:
+        if column not in league_pool.columns:
+            league_pool[column] = pd.NA
 
+    trait_labels = {column: trait_label(column.replace("__score", "")) for column in role_trait_columns}
+    role_stat_columns = _role_stat_columns(ranking_role)
+    role_stat_labels = _role_stat_label_map(ranking_role)
+    family_icon_headers = {label: (trait_icon(label), column_help_text(label)) for label in trait_labels.values()}
     for division in sorted(league_pool["division"].dropna().unique().tolist()):
         league_frame = league_pool[league_pool["division"] == division].copy()
         if league_frame.empty:
             continue
-        display = league_frame[["player", "club", "minutes", ranking_category, "value_gap_score", "cost_score", "uncertainty_score"]].copy()
-        display["rank"] = display[ranking_category].rank(method="min", ascending=False)
-        display["grade"] = display[ranking_category].map(percentile_band)
-        display["confidence"] = display["uncertainty_score"].map(lambda value: confidence_label(value)[0])
-        display = display.sort_values(["rank", "player"]).head(top_n)
-        display = display.rename(
-            columns={
+        ranked_frame = league_frame.copy()
+        ranked_frame["rank"] = ranked_frame["performance_score"].rank(method="min", ascending=False)
+        ranked_frame["performance_grade"] = ranked_frame["performance_score"].map(percentile_band)
+        ranked_frame["confidence"] = ranked_frame["uncertainty_score"].map(lambda value: confidence_label(value)[0])
+        ranked_frame = ranked_frame.sort_values(["rank", "player"]).head(top_n)
+        st.markdown(f"**{division}**")
+        show_stats_view = st.toggle(f"Stats View For {division}", value=False, key=f"league-trait-stats-{division}-{ranking_role}")
+        if not show_stats_view:
+            display_columns = ["player", "position", "club", "minutes", "Transfer Value", "performance_score", *role_trait_columns, "value_gap_score", "cost_score", "confidence", "rank", "performance_grade"]
+            display = ranked_frame[display_columns].copy()
+            rename_map = {
                 "player": "Player",
+                "position": "Position",
                 "club": "Club",
                 "minutes": "Minutes",
-                ranking_category: trait_label(ranking_category.replace("__score", "")),
+                "Transfer Value": "Transfer Value",
+                "performance_score": "Performance",
                 "value_gap_score": "Value Pick",
                 "cost_score": "Price Level",
                 "rank": "Rank",
-                "grade": "Grade",
+                "performance_grade": "Performance Grade",
                 "confidence": "Confidence",
             }
-        )
-        display = display[["Rank", "Player", "Club", "Minutes", trait_label(ranking_category.replace("__score", "")), "Grade", "Value Pick", "Price Level", "Confidence"]]
-        st.markdown(f"**{division}**")
-        st.dataframe(
-            formatted_table(
+            rename_map.update(trait_labels)
+            display = display.rename(columns=rename_map)
+            ordered_columns = ["Rank", "Player", "Position", "Club", "Minutes", "Transfer Value", "Performance", "Performance Grade", *trait_labels.values(), "Value Pick", "Price Level", "Confidence"]
+            display = display[ordered_columns]
+            percent_columns = ["Performance", *trait_labels.values(), "Value Pick", "Price Level"]
+            money_columns = ["Transfer Value"]
+            icon_headers = family_icon_headers
+        else:
+            cohort_key = f"{division}::{ranking_role}"
+            trace = traces.get(cohort_key)
+            if trace is None:
+                st.info(f"Stats view is unavailable for {division} because no primitive trace was found for that cohort.")
+                continue
+            raw_primitives = trace["raw_primitives"].copy()
+            stats_columns = [column for column in role_stat_columns if column in raw_primitives.columns]
+            if not stats_columns:
+                st.info(f"Stats view is unavailable for {division} because none of the role-trait input stats were found.")
+                continue
+            display = ranked_frame[["player_role_id", "player", "position", "club", "minutes", "rank"]].merge(
+                raw_primitives[["player_role_id", *stats_columns]],
+                on="player_role_id",
+                how="left",
+            )
+            display = display.sort_values(["rank", "player"])
+            rename_map = {
+                "rank": "Rank",
+                "player": "Player",
+                "position": "Position",
+                "club": "Club",
+                "minutes": "Minutes",
+            }
+            rename_map.update({column: role_stat_labels.get(column, format_metric_label(column)) for column in stats_columns})
+            display = display.rename(columns=rename_map)
+            ordered_columns = ["Rank", "Player", "Position", "Club", "Minutes", *[role_stat_labels.get(column, format_metric_label(column)) for column in stats_columns]]
+            display = display[ordered_columns]
+            percent_columns = []
+            money_columns = []
+            primitive_family_map = {}
+            for family, primitives in FAMILY_DEFINITIONS[ranking_role].items():
+                family_label = trait_label(family)
+                for primitive in primitives:
+                    primitive_family_map[role_stat_labels.get(primitive, format_metric_label(primitive))] = (trait_icon(family_label), column_help_text(family_label))
+            icon_headers = primitive_family_map
+        st.markdown(
+            render_icon_table(
                 display,
-                percent_columns=[trait_label(ranking_category.replace("__score", "")), "Value Pick", "Price Level"],
+                icon_headers=icon_headers,
+                percent_columns=percent_columns,
+                money_columns=money_columns,
             ),
-            use_container_width=True,
+            unsafe_allow_html=True,
         )
 
 
-def render_overview(results: pd.DataFrame) -> None:
+def render_overview(results: pd.DataFrame, traces: dict) -> None:
     st.subheader("Scout Board")
     if results.empty:
         st.info("No eligible player-role rows were produced from the upload.")
@@ -149,11 +224,10 @@ def render_overview(results: pd.DataFrame) -> None:
     category_score_cols = _category_score_columns(filtered)
     filtered = _add_trait_summary(filtered, category_score_cols)
 
-    headline_cols = st.columns(4)
+    headline_cols = st.columns(3)
     headline_cols[0].metric("Profiles", str(len(filtered)))
     headline_cols[1].metric("Average Age", f"{filtered['age'].mean():.1f}" if not filtered.empty else "NA")
-    headline_cols[2].metric("Average Squad Fit", percentile_text(filtered["category_mean_score"].mean()) if filtered["category_mean_score"].notna().any() else "NA")
-    headline_cols[3].metric("Value Picks", str(int((filtered["value_gap_score"] >= 75).sum())) if filtered["value_gap_score"].notna().any() else "0")
+    headline_cols[2].metric("Value Picks", str(int((filtered["value_gap_score"] >= 75).sum())) if filtered["value_gap_score"].notna().any() else "0")
 
     if selected_divisions:
         league_copy = ", ".join(selected_divisions[:3])
@@ -171,9 +245,9 @@ def render_overview(results: pd.DataFrame) -> None:
             "broad_role",
             "age",
             "minutes",
+            "performance_score",
             "best_category",
             "best_category_score",
-            "category_mean_score",
             "cost_score",
             "value_gap_score",
             "uncertainty_score",
@@ -187,9 +261,9 @@ def render_overview(results: pd.DataFrame) -> None:
             "broad_role": "Role",
             "age": "Age",
             "minutes": "Minutes",
+            "performance_score": "Performance",
             "best_category": "Top Trait",
             "best_category_score": "Trait Score",
-            "category_mean_score": "Squad Fit",
             "cost_score": "Price Level",
             "value_gap_score": "Value Pick",
             "uncertainty_score": "Scout Confidence",
@@ -198,13 +272,14 @@ def render_overview(results: pd.DataFrame) -> None:
     scout_view["Role"] = scout_view["Role"].map(format_role_label)
     scout_view["Top Trait"] = scout_view["Top Trait"].map(trait_label)
     scout_view["Scout Confidence"] = scout_view["Scout Confidence"].map(lambda value: confidence_label(value)[0])
-    scout_view = scout_view.sort_values(["Value Pick", "Squad Fit"], ascending=False)
+    scout_view = scout_view.sort_values(["Value Pick", "Performance"], ascending=False)
     st.dataframe(
         formatted_table(
             scout_view,
-            percent_columns=["Trait Score", "Squad Fit", "Price Level", "Value Pick"],
+            percent_columns=["Performance", "Trait Score", "Price Level", "Value Pick"],
         ),
-        use_container_width=True,
+        column_config=column_config_for(scout_view),
+        width="stretch",
     )
 
     buffer = io.StringIO()
@@ -229,19 +304,19 @@ def render_overview(results: pd.DataFrame) -> None:
     export_frame.to_csv(buffer, index=False)
     st.download_button("Export scout board to CSV", data=buffer.getvalue(), file_name="fm26_cohort_overview.csv")
 
-    chart_columns = ["player", "cost_score", "category_mean_score", "minutes", "broad_role", "division", "uncertainty_score"]
-    chart_data = filtered[chart_columns].dropna(subset=["player", "cost_score", "category_mean_score", "minutes", "broad_role", "division"])
+    chart_columns = ["player", "cost_score", "performance_score", "minutes", "broad_role", "division", "uncertainty_score"]
+    chart_data = filtered[chart_columns].dropna(subset=["player", "cost_score", "performance_score", "minutes", "broad_role", "division"])
     if not chart_data.empty:
         encoding = {
             "x": {"field": "cost_score", "type": "quantitative", "title": "Price Level"},
-            "y": {"field": "category_mean_score", "type": "quantitative", "title": "Squad Fit"},
+            "y": {"field": "performance_score", "type": "quantitative", "title": "Performance"},
             "size": {"field": "minutes", "type": "quantitative", "title": "Minutes"},
             "tooltip": [
                 {"field": "player", "type": "nominal"},
                 {"field": "division", "type": "nominal"},
                 {"field": "broad_role", "type": "nominal", "title": "Role"},
                 {"field": "minutes", "type": "quantitative"},
-                {"field": "category_mean_score", "type": "quantitative", "title": "Squad Fit"},
+                {"field": "performance_score", "type": "quantitative", "title": "Performance"},
                 {"field": "cost_score", "type": "quantitative", "title": "Price Level"},
             ],
         }
@@ -254,18 +329,8 @@ def render_overview(results: pd.DataFrame) -> None:
                 "mark": {"type": "circle", "tooltip": True},
                 "encoding": encoding,
             },
-            use_container_width=True,
+            width="stretch",
         )
-
-    if category_score_cols and not filtered.empty:
-        st.markdown("**League Trait Snapshot**")
-        category_snapshot = (
-            filtered[category_score_cols]
-            .rename(columns=lambda value: trait_label(value.replace("__score", "")))
-            .mean(axis=0)
-            .sort_values(ascending=False)
-        )
-        st.bar_chart(category_snapshot)
 
     if not filtered.empty:
         st.markdown("**Quick Read**")
@@ -290,7 +355,8 @@ def render_overview(results: pd.DataFrame) -> None:
                 quick_read_display,
                 percent_columns=["Trait Score", "Value Pick"],
             ),
-            use_container_width=True,
+            column_config=column_config_for(quick_read_display),
+            width="stretch",
         )
 
-    _render_league_rankings(filtered, category_score_cols)
+    _render_league_rankings(filtered, category_score_cols, traces)

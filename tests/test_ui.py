@@ -55,11 +55,12 @@ class FakeEmpty:
 
 
 class FakeStreamlit:
-    def __init__(self, selectbox_values=None, slider_values=None, upload=None, checkbox_values=None, multiselect_values=None):
+    def __init__(self, selectbox_values=None, slider_values=None, upload=None, checkbox_values=None, multiselect_values=None, toggle_values=None):
         self.selectbox_values = list(selectbox_values or [])
         self.slider_values = list(slider_values or [])
         self.checkbox_values = list(checkbox_values or [])
         self.multiselect_values = list(multiselect_values or [])
+        self.toggle_values = list(toggle_values or [])
         self.upload = upload
         self.calls = []
         self.session_state = {}
@@ -130,6 +131,12 @@ class FakeStreamlit:
             return self.checkbox_values.pop(0)
         return value
 
+    def toggle(self, label, value=False, key=None):
+        self.calls.append(("toggle", label, value, key))
+        if self.toggle_values:
+            return self.toggle_values.pop(0)
+        return value
+
     def dataframe(self, value, **kwargs):
         self.calls.append(("dataframe", type(value).__name__, kwargs))
 
@@ -165,8 +172,11 @@ def sample_results():
             "cohort_key": ["Division A::ST", "Division A::AM_W", "Division B::ST"],
             "division": ["Division A", "Division A", "Division B"],
             "club": ["X", "X", "Y"],
+            "position": ["ST", "AM (R), ST", "ST"],
             "age": [22, 22, 25],
             "minutes": [900, 900, 1200],
+            "goals": [12, 7, 18],
+            "assists": [4, 9, 3],
             "performance_score": [70.0, 65.0, 80.0],
             "cost_score": [30.0, 40.0, 60.0],
             "value_gap_score": [85.0, 70.0, 55.0],
@@ -248,32 +258,41 @@ def sample_diagnostics():
 def test_render_overview_handles_empty(monkeypatch):
     fake = FakeStreamlit()
     monkeypatch.setattr(overview_ui, "st", fake)
-    overview_ui.render_overview(pd.DataFrame())
+    overview_ui.render_overview(pd.DataFrame(), {})
     assert ("info", "No eligible player-role rows were produced from the upload.") in fake.calls
 
 
 def test_render_overview_full(monkeypatch):
-    fake = FakeStreamlit(selectbox_values=["All", "All", "AM_W", "finisher__score"], slider_values=[(15, 45), (0, 1200), 15])
+    fake = FakeStreamlit(selectbox_values=["All", "All", "AM_W"], slider_values=[(15, 45), (0, 1200), 15], toggle_values=[False, False])
     monkeypatch.setattr(overview_ui, "st", fake)
-    overview_ui.render_overview(sample_results())
+    overview_ui.render_overview(sample_results(), sample_traces())
     assert any(call[0] == "download_button" for call in fake.calls)
     assert any(call[0] == "vega_lite_chart" for call in fake.calls)
+    assert any(call[0] == "dataframe" and "column_config" in call[2] for call in fake.calls)
 
 
 def test_render_overview_handles_zero_minutes(monkeypatch):
-    fake = FakeStreamlit(selectbox_values=["All", "All", "AM_W", "finisher__score"], slider_values=[(15, 45), 15])
+    fake = FakeStreamlit(selectbox_values=["All", "All", "AM_W"], slider_values=[(15, 45), 15], toggle_values=[False, False])
     monkeypatch.setattr(overview_ui, "st", fake)
     results = sample_results().copy()
     results["minutes"] = 0
-    overview_ui.render_overview(results)
+    overview_ui.render_overview(results, sample_traces())
     assert any(call[0] == "info" and "Minutes filter is unavailable" in call[1] for call in fake.calls)
 
 
 def test_render_overview_shows_league_rankings(monkeypatch):
-    fake = FakeStreamlit(selectbox_values=["All", "All", "ST", "finisher__score"], multiselect_values=[["Division A"]], slider_values=[(15, 45), (0, 1200), 15])
+    fake = FakeStreamlit(selectbox_values=["All", "All", "ST"], multiselect_values=[["Division A"]], slider_values=[(15, 45), (0, 1200), 15], toggle_values=[False])
     monkeypatch.setattr(overview_ui, "st", fake)
-    overview_ui.render_overview(sample_results())
-    assert any(call[0] == "selectbox" and call[1] == "Trait To Rank" for call in fake.calls)
+    overview_ui.render_overview(sample_results(), sample_traces())
+    assert not any(call[0] == "selectbox" and call[1] == "Trait To Rank" for call in fake.calls)
+
+
+def test_render_overview_stats_view(monkeypatch):
+    fake = FakeStreamlit(selectbox_values=["All", "All", "ST"], multiselect_values=[["Division A"]], slider_values=[(15, 45), (0, 1200), 15], toggle_values=[True])
+    monkeypatch.setattr(overview_ui, "st", fake)
+    overview_ui.render_overview(sample_results(), sample_traces())
+    assert any(call[0] == "toggle" and "Stats View For Division A" in call[1] for call in fake.calls)
+    assert any(call[0] == "dataframe" for call in fake.calls)
 
 
 def test_render_player_detail_handles_empty(monkeypatch):
@@ -321,7 +340,7 @@ def test_app_main_with_upload(monkeypatch):
     monkeypatch.setattr(app_ui, "run_pipeline", lambda upload, progress_callback=None: payload)
     monkeypatch.setattr(app_ui, "_resolve_uncertainty_future", lambda payload: (payload, None))
     called = {"overview": False, "player": False, "diag": False}
-    monkeypatch.setattr(app_ui, "render_overview", lambda results: called.__setitem__("overview", True))
+    monkeypatch.setattr(app_ui, "render_overview", lambda results, traces: called.__setitem__("overview", True))
     monkeypatch.setattr(app_ui, "render_player_detail", lambda results, traces, diagnostics: called.__setitem__("player", True))
     monkeypatch.setattr(app_ui, "render_diagnostics", lambda payload_arg: called.__setitem__("diag", True))
     app_ui.main()
@@ -344,12 +363,13 @@ def test_app_main_starts_background_uncertainty(monkeypatch):
     monkeypatch.setattr(app_ui, "_resolve_uncertainty_future", lambda payload: (payload, None))
     started = {"called": False}
     monkeypatch.setattr(app_ui, "_maybe_start_uncertainty_job", lambda file_hash: started.__setitem__("called", True))
-    monkeypatch.setattr(app_ui, "render_overview", lambda results: None)
+    monkeypatch.setattr(app_ui, "render_overview", lambda results, traces: None)
     monkeypatch.setattr(app_ui, "render_player_detail", lambda results, traces, diagnostics: None)
     monkeypatch.setattr(app_ui, "render_diagnostics", lambda payload_arg: None)
     app_ui.main()
     assert started["called"] is True
     assert any(call[0] == "info" and "Player profiles are ready" in call[1] for call in fake.calls)
+    assert any(call[0] == "caption" and "Confidence status: running." in call[1] for call in fake.calls)
 
 
 def test_app_main_shows_advanced_diagnostics_when_enabled(monkeypatch):
@@ -365,7 +385,7 @@ def test_app_main_shows_advanced_diagnostics_when_enabled(monkeypatch):
     monkeypatch.setattr(app_ui, "run_pipeline", lambda upload, progress_callback=None: payload)
     monkeypatch.setattr(app_ui, "_resolve_uncertainty_future", lambda payload: (payload, None))
     called = {"diag": False}
-    monkeypatch.setattr(app_ui, "render_overview", lambda results: None)
+    monkeypatch.setattr(app_ui, "render_overview", lambda results, traces: None)
     monkeypatch.setattr(app_ui, "render_player_detail", lambda results, traces, diagnostics: None)
     monkeypatch.setattr(app_ui, "render_diagnostics", lambda payload_arg: called.__setitem__("diag", True))
     app_ui.main()

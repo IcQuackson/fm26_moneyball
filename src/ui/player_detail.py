@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from src.ui.presentation import (
+    column_config_for,
     confidence_label,
     format_role_label,
     formatted_table,
@@ -80,7 +81,11 @@ def render_player_detail(results: pd.DataFrame, traces: dict, diagnostics: dict)
             category_ranks[trait_label(metric.replace("__score", ""))] = int(rank_series.loc[row.name]) if pd.notna(rank_series.loc[row.name]) else pd.NA
         category_table["League Rank"] = category_table.index.map(category_ranks.get)
         category_table["Grade"] = category_table["Percentile"].map(percentile_band)
-        st.dataframe(formatted_table(category_table, percent_columns=["Percentile"]), use_container_width=True)
+        st.dataframe(
+            formatted_table(category_table, percent_columns=["Percentile"]),
+            column_config=column_config_for(category_table),
+            width="stretch",
+        )
 
         radar_data = _radar_frame(pd.DataFrame([row]))
         st.markdown("**Role Shape Radar**")
@@ -103,7 +108,7 @@ def render_player_detail(results: pd.DataFrame, traces: dict, diagnostics: dict)
                     }
                 ]
             },
-            use_container_width=True,
+            width="stretch",
         )
 
     role_trace = traces[cohort_key]
@@ -137,9 +142,17 @@ def render_player_detail(results: pd.DataFrame, traces: dict, diagnostics: dict)
     bottom_metrics = metric_panel.tail(5).sort_values("Percentile", ascending=True)
     strength_cols = st.columns(2)
     strength_cols[0].markdown("**Standout Areas**")
-    strength_cols[0].dataframe(formatted_table(top_metrics, percent_columns=["Percentile"]), use_container_width=True)
+    strength_cols[0].dataframe(
+        formatted_table(top_metrics, percent_columns=["Percentile"]),
+        column_config=column_config_for(top_metrics),
+        width="stretch",
+    )
     strength_cols[1].markdown("**Monitor Areas**")
-    strength_cols[1].dataframe(formatted_table(bottom_metrics, percent_columns=["Percentile"]), use_container_width=True)
+    strength_cols[1].dataframe(
+        formatted_table(bottom_metrics, percent_columns=["Percentile"]),
+        column_config=column_config_for(bottom_metrics),
+        width="stretch",
+    )
 
     cohort_pool = results[
         (results["division"] == selected_division) & (results["broad_role"] == selected_role)
@@ -175,7 +188,7 @@ def render_player_detail(results: pd.DataFrame, traces: dict, diagnostics: dict)
                     }
                 ]
             },
-            use_container_width=True,
+            width="stretch",
         )
         compare_table = compare_rows[
             ["player", "club", "minutes", "value_gap_score", "cost_score", "uncertainty_score"]
@@ -195,7 +208,11 @@ def render_player_detail(results: pd.DataFrame, traces: dict, diagnostics: dict)
         percentile_columns = [column for column in compare_table.columns if column not in {"Player", "Club", "Minutes", "Risk"}]
         compare_table["Risk"] = compare_table["Risk"].map(lambda value: confidence_label(value)[0])
         st.markdown("**Side-by-Side Comparison**")
-        st.dataframe(formatted_table(compare_table, percent_columns=percentile_columns), use_container_width=True)
+        st.dataframe(
+            formatted_table(compare_table, percent_columns=percentile_columns),
+            column_config=column_config_for(compare_table),
+            width="stretch",
+        )
 
     market_panel = pd.DataFrame(
         {
@@ -212,7 +229,8 @@ def render_player_detail(results: pd.DataFrame, traces: dict, diagnostics: dict)
             percent_columns=["Price Level", "Value Pick"],
             money_columns=["Estimated Fee", "Weekly Wage"],
         ),
-        use_container_width=True,
+        column_config=column_config_for(market_panel),
+        width="stretch",
     )
 
     with st.expander("Advanced Model Detail"):
@@ -223,7 +241,11 @@ def render_player_detail(results: pd.DataFrame, traces: dict, diagnostics: dict)
         advanced_panel["Role Context"] = standardized.loc[raw_frame.index.get_loc(player_role_id), used_primitives].values
         advanced_panel["Team Context"] = adjusted.loc[raw_frame.index.get_loc(player_role_id), used_primitives].values
         advanced_panel["Percentile"] = metric_percentiles.loc[raw_frame.index.get_loc(player_role_id), used_primitives].values
-        st.dataframe(formatted_table(advanced_panel, percent_columns=["Percentile"]), use_container_width=True)
+        st.dataframe(
+            formatted_table(advanced_panel, percent_columns=["Percentile"]),
+            column_config=column_config_for(advanced_panel),
+            width="stretch",
+        )
 
     warnings = diagnostics["role_warnings"].get(cohort_key, [])
     if warnings:

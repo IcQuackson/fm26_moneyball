@@ -76,6 +76,8 @@ def score_role_core(role_df: pd.DataFrame) -> dict:
                     "broad_role",
                     "Transfer Value",
                     "Wage",
+                    "Goals",
+                    "Assists",
                 ]
             ].rename(
                 columns={
@@ -86,6 +88,8 @@ def score_role_core(role_df: pd.DataFrame) -> dict:
                     "Age": "age",
                     "Minutes": "minutes",
                     "Pts/Gm": "pts_per_game",
+                    "Goals": "goals",
+                    "Assists": "assists",
                 }
             ),
             performance_df,
